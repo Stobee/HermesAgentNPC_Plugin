@@ -1,6 +1,7 @@
 #include "Actions/MoveToActionHandler.h"
 #include "NPC/HermesNPCCharacter.h"
 #include "AIController.h"
+#include "Navigation/PathFollowingComponent.h"
 #include "Dom/JsonObject.h"
 
 void UMoveToActionHandler::Execute(const FHermesActionPayload& Payload, FHermesActionResultDelegate OnDone)
