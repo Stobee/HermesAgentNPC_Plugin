@@ -1,0 +1,19 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Hermes Agent NPC",
+	"Description": "Hermes AI Agent Socket Connection & NPC Controller Plugin",
+	"Category": "AI",
+	"CreatedBy": "Stobee",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "HermesAgentNPC",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
