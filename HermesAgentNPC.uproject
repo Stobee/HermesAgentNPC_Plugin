@@ -3,11 +3,10 @@
 	"EngineAssociation": "5.8",
 	"Category": "",
 	"Description": "Hermes agent NPC UE5 client",
-	"Modules": [
+	"Plugins": [
 		{
 			"Name": "HermesAgentNPC",
-			"Type": "Runtime",
-			"LoadingPhase": "Default"
+			"Enabled": true
 		}
 	]
 }
