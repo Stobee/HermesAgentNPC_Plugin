@@ -1,9 +1,12 @@
 #include "NPC/HermesNPCCharacter.h"
 #include "NPC/HermesNPCAIController.h"
 #include "Inventory/HermesInventoryComponent.h"
+#include "UI/HermesDialogueWidget.h"
+#include "Connection/HermesConnectionSubsystem.h"
 #include "AIController.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/Pawn.h"
+#include "Engine/GameInstance.h"
 
 AHermesNPCCharacter::AHermesNPCCharacter()
 {
@@ -11,6 +14,34 @@ AHermesNPCCharacter::AHermesNPCCharacter()
 	AIControllerClass = AHermesNPCAIController::StaticClass();
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 	Inventory = CreateDefaultSubobject<UHermesInventoryComponent>(TEXT("Inventory"));
+}
+
+void AHermesNPCCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UHermesConnectionSubsystem* Conn = GI->GetSubsystem<UHermesConnectionSubsystem>())
+		{
+			Conn->RegisterNpc(this);
+		}
+	}
+}
+
+void AHermesNPCCharacter::Interact()
+{
+	UGameInstance* GI = GetGameInstance();
+	if (!GI || !DialogueWidgetClass) return;
+	UHermesConnectionSubsystem* Conn = GI->GetSubsystem<UHermesConnectionSubsystem>();
+	if (!Conn) return;
+	if (!DialogueWidget)
+	{
+		DialogueWidget = CreateWidget<UHermesDialogueWidget>(GI, DialogueWidgetClass);
+	}
+	if (DialogueWidget)
+	{
+		DialogueWidget->OpenFor(Conn);
+	}
 }
 
 void AHermesNPCCharacter::Tick(float DeltaSeconds)

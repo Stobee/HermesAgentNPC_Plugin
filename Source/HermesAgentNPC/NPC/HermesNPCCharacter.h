@@ -17,8 +17,19 @@ public:
 	bool IsFollowing() const { return bFollowing; }
 
 	virtual void Tick(float DeltaSeconds) override;
+	virtual void BeginPlay() override;
+
+	UFUNCTION(BlueprintCallable, Category="Hermes")
+	void Interact();
+
+protected:
+	UPROPERTY(EditDefaultsOnly, Category="Hermes")
+	TSubclassOf<class UHermesDialogueWidget> DialogueWidgetClass;
 
 private:
+	UPROPERTY()
+	UHermesDialogueWidget* DialogueWidget = nullptr;
+
 	UPROPERTY(VisibleAnywhere)
 	UHermesInventoryComponent* Inventory;
 
