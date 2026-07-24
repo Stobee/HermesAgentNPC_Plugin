@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
 #include "Actions/HermesActionHandler.h"
+#include "NPC/HermesNPCCharacter.h"
 #include "MoveToActionHandler.generated.h"
 
 class AHermesNPCCharacter;
