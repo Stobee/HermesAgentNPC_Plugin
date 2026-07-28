@@ -16,7 +16,8 @@ public class HermesAgentNPC : ModuleRules
 			"Sockets", "Networking",
 			"Json", "JsonUtilities",
 			"AIModule", "NavigationSystem",
-			"UMG", "Slate", "SlateCore"
+			"UMG", "Slate", "SlateCore",
+			"DeveloperSettings"
 		});
 	}
 }
