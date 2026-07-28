@@ -8,40 +8,33 @@
 
 ## 지금 상태
 
-**Phase 1 진행 중 — Task 3 (DNS 해석), 컴파일 에러 수정 중.**
+**Phase 1 완료. Phase 2도 Task 7까지 완료. 남은 것은 Task 8 하나.**
 
 | Phase | 범위 | 상태 |
 |---|---|---|
 | 프로토콜 v2 문서 | Task 17 (앞당김) | ✅ 완료 |
-| 1 — 설정 전역화 | Task 1~3 | 🔶 Task 1·2 완료, **Task 3 진행 중** |
-| 2 — 입력 강건성 | Task 4~8 | ⬜ 대기 |
+| 1 — 설정 전역화 | Task 1~3 | ✅ **완료** |
+| 2 — 입력 강건성 | Task 4~8 | 🔶 Task 4~7 완료, **Task 8만 남음** |
 | 3 — 프로토콜 v2 코드 | Task 9~13b | ⛔ **보류** (서버 v2 준비 후) |
 | 4 — TLS | Task 14~16 | ⛔ **보류** (동상) |
 | 5 — 문서·검증 | Task 18~19 | ⬜ 대기 |
 
 **이번 세션 목표는 Phase 1~2 (Task 1~8)까지.** Phase 3부터는 클라이언트가 v1 서버와 통신 불가가 되므로 서버 재구축과 일정을 맞춰야 한다.
 
-## 🔴 재개 지점 — 여기부터 읽을 것
+## ✅ 재개 지점 — 깨끗한 상태
 
-**Task 3의 마지막 빌드가 컴파일 에러로 실패했다.** 미커밋 상태다.
+**작업 트리에 미커밋 코드 변경이 없다.** 빌드·테스트 모두 통과 상태에서 중단했다.
 
-```
-HermesSocketWorker.cpp(75,4): error C2039:
-  'WithProtocol': is not a member of 'FTcpSocketBuilder'
-```
+**다음 할 일: 계획서 `## Task 8: 보류 발화 상한`** (계획서 1719행 부근).
 
-계획서 Task 3 Step 1이 `FTcpSocketBuilder(...).WithProtocol(...)` 를 쓰라고 했는데 **UE 5.8의 `FTcpSocketBuilder`에는 그 메서드가 없다.** 계획서가 틀렸다.
+요약하면:
+1. `Connection/HermesUtil.h` / `.cpp` 신규 — `HermesUtil::PushBounded(TArray<FString>&, const FString&, int32)`
+2. `Connection/HermesUtil.spec.cpp` 신규 — 4케이스 (상한 미만/도달/여러 개 폐기/MaxNum 0 클램프)
+3. `HermesConnectionSubsystem::SendChat()` 에 `MaxPendingChats` 적용
 
-`Engine/Source/Runtime/Networking/Public/Common/TcpSocketBuilder.h` 를 열어 실제 API를 확인하고 아래 중 하나로 고친다:
+계획서에 코드 전문이 있다. 완료하면 **테스트 12종**이 되고 Phase 2가 끝난다.
 
-1. `FTcpSocketBuilder` 대신 `SS->CreateSocket(NAME_Stream, TEXT("HermesClient"), Chosen->Address->GetProtocolType())` 를 직접 호출 — 프로토콜 타입을 받는 정식 경로
-2. `FTcpSocketBuilder` 에 프로토콜 지정 수단이 있으면 그 이름으로 교체
-
-**IPv4 우선 선택 로직(`Chosen`)과 `GetAddressInfo` 교체는 이미 되어 있다.** 소켓 생성 한 줄만 고치면 된다.
-
-고친 뒤 계획서 Task 3 Step 2(빌드·테스트) → Step 3(수동 확인, 선택) → Step 4(커밋) 순으로 진행한다. 그다음 Task 4.
-
-**계획서도 함께 고칠 것** — 같은 오류가 Task 14(`FHermesPlainTransport::Connect`)에도 복사되어 있다.
+그 뒤로는 Phase 3~4가 서버 대기 상태이므로, **Task 18(README·HTML 문서 갱신)을 먼저 하는 것도 가능**하다. 프로토콜과 무관하고 빌드도 필요 없다.
 
 ## 문서 위치
 
@@ -56,7 +49,13 @@ HermesSocketWorker.cpp(75,4): error C2039:
 ## 커밋 히스토리
 
 ```
-47c404b  refactor: 하드코딩 상수를 UHermesSettings 소비로 전환   (Task 2 ✅)
+30087c1  feat: 인바운드·아웃바운드 큐 상한 및 틱 처리 예산        (Task 7 ✅)
+da0cd40  feat: 액션 레이트 리밋 도입 및 타이머 핸들 회수          (Task 6 ✅)
+72b0b32  feat: 액션 파라미터 하드 바운드 및 인벤토리 오버플로 포화 (Task 5 ✅)
+f4e6d8f  fix: 백오프 대기를 조각 sleep 으로 바꿔 종료 응답성 확보  (Task 4 ✅)
+eee6622  feat: GetAddressInfo 기반 DNS 해석으로 호스트명 지원      (Task 3 ✅)
+d59587f  docs: 인계 문서
+47c404b  refactor: 하드코딩 상수를 UHermesSettings 소비로 전환     (Task 2 ✅)
 b55528b  feat: UHermesSettings 설정 클래스 및 커맨드라인 오버라이드 (Task 1 ✅)
 f6c1a6e  docs: 검토 결과를 구현 계획서에 반영
 10d0279  docs: action_event 프레임 추가 — 15초 딜레마 해소
@@ -64,28 +63,31 @@ f6c1a6e  docs: 검토 결과를 구현 계획서에 반영
 7186dd5  docs: 구현 계획서 작성            (master)
 ```
 
-## 미커밋 작업 (Task 3, 빌드 실패 상태)
+## 미커밋 작업
 
-| 파일 | 내용 |
-|---|---|
-| `Plugins/.../Transport/HermesSocketWorker.cpp` | `GetAddressInfo` + IPv4 우선 선택. **`WithProtocol` 한 줄이 컴파일 실패** |
+**없다.** 코드 변경은 전부 커밋되었다.
 
-되돌리려면: `git checkout Plugins/HermesAgentNPC/Source/HermesAgentNPC/Transport/HermesSocketWorker.cpp`
+`claude_code_prompt_ue5_client.md` 하나가 untracked 로 남아 있는데 원래부터 그랬던 파일이다(이번 작업과 무관).
 
 ## 테스트 기준선
 
-현재 **6종 전부 통과** (Task 2 시점 기준):
+현재 **11종 전부 통과**:
 
 ```
+Hermes.ActionParams.Coordinate          ← Task 5
+Hermes.ActionParams.ItemId              ← Task 5
+Hermes.ActionParams.Quantity            ← Task 5
 Hermes.Actions.Dispatcher.Route
 Hermes.Inventory.AddRemove
+Hermes.Inventory.AddSaturates           ← Task 5
 Hermes.Protocol.FrameAccumulator.Parse
 Hermes.Protocol.FrameCodec.Encode
 Hermes.Protocol.Messages.Build
-Hermes.Settings.CommandLineOverride     ← Task 1 신규
+Hermes.RateLimiter.TokenBucket          ← Task 6
+Hermes.Settings.CommandLineOverride     ← Task 1
 ```
 
-Phase 2 종료 시 12종이 되어야 한다.
+Task 8 완료 시 `Hermes.Util.PushBounded` 가 더해져 **12종**이 되고 Phase 2가 끝난다.
 
 ### 테스트 결과 확인 방법
 
@@ -135,9 +137,22 @@ Get-Process -Name "UnrealEditor" -ErrorAction SilentlyContinue
 
 > **교훈:** adaptive unity 빌드는 `git status` 로 변경 파일을 판단해 unity에서 뺀다. 즉 **파일을 건드리는 순간 숨어 있던 include 누락이 드러난다.** 앞으로도 비슷한 에러가 나올 수 있다.
 
-**2. `FTcpSocketBuilder::WithProtocol` 부재 (Task 3, 미해결).** 위 재개 지점 참조.
+**2. `FTcpSocketBuilder::WithProtocol` 부재 (Task 3에서 발견·수정 완료).**
+계획서가 `FTcpSocketBuilder(...).WithProtocol(...)` 를 쓰라고 했으나 그런 메서드는 없다. 더 근본적으로 **이 빌더는 `FIPv4Endpoint` 에서 프로토콜을 유도하므로 구조적으로 IPv4 전용**이라 IPv6 폴백을 지원할 수 없다. `ISocketSubsystem::CreateSocket(NAME_Stream, Desc, ProtocolType)` 직접 호출로 교체하고 빌더의 `AsBlocking()` 에 해당하는 `SetNonBlocking(false)` 를 명시했다. 계획서의 같은 오류(Task 14)도 함께 정정했다.
 
-**3. 계획서의 코드는 검증되지 않았다.** 위 둘 다 계획서를 그대로 따랐다가 실패한 경우다. 계획서는 방향과 근거로 쓰고, **API 시그니처는 엔진 소스로 확인**하는 편이 빠르다.
+**3. `TimeoutSeconds` 지역 변수 소실 (Task 6).** 편집 중 선언이 사라져 컴파일 실패. `Settings->ActionTimeoutSeconds` 직접 참조로 해결.
+
+**4. 계획서의 코드는 검증되지 않았다.** 위 셋 다 계획서를 그대로 따랐다가 실패한 경우다. 계획서는 방향과 근거로 쓰고, **API 시그니처는 엔진 소스로 확인**하는 편이 빠르다.
+
+## 자주 쓴 명령
+
+```powershell
+# 에디터 실행 확인 (실행 중이면 빌드 불가)
+Get-Process -Name "UnrealEditor" -ErrorAction SilentlyContinue
+
+# 빌드 (에러만 보기)
+& "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" HermesAgentNPCEditor Win64 Development -Project="C:\Work\HermesAgentNPC\HermesAgentNPC.uproject" -WaitMutex 2>&1 | Select-String -Pattern "error|Result:" | Select-Object -First 6
+```
 
 ## 결정 기록 (되돌리지 말 것)
 
