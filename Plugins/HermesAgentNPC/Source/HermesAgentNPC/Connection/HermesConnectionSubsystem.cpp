@@ -9,19 +9,28 @@
 #include "HermesSaveGame.h"
 #include "Kismet/GameplayStatics.h"
 #include "Dom/JsonObject.h"
-
-static const TCHAR* HermesHost = TEXT("192.168.0.111");
-static const int32  HermesPort = 8770;
-static const TCHAR* SaveSlot   = TEXT("HermesPlayer");
+#include "Settings/HermesSettings.h"
+#include "Transport/HermesWorkerConfig.h"
 
 void UHermesConnectionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+
+	const UHermesSettings* Settings = GetDefault<UHermesSettings>();
+
 	PlayerId = LoadOrCreatePlayerId();
 
 	Dispatcher = NewObject<UHermesActionDispatcher>(this);
 
-	Worker = MakeUnique<FHermesSocketWorker>(HermesHost, HermesPort);
+	// 워커는 전용 스레드에서 돌므로 UObject를 넘기지 않고 값만 복사해 전달한다.
+	FHermesWorkerConfig Cfg;
+	Settings->GetResolvedEndpoint(Cfg.Host, Cfg.Port);
+	Cfg.InitialReconnectDelay = Settings->InitialReconnectDelay;
+	Cfg.MaxReconnectDelay     = Settings->MaxReconnectDelay;
+	Cfg.MaxInboundQueueSize   = Settings->MaxInboundQueueSize;
+	Cfg.MaxOutboundQueueSize  = Settings->MaxOutboundQueueSize;
+
+	Worker = MakeUnique<FHermesSocketWorker>(Cfg);
 	Worker->Start();
 
 	TickHandle = FTSTicker::GetCoreTicker().AddTicker(
@@ -44,6 +53,8 @@ void UHermesConnectionSubsystem::Deinitialize()
 
 FString UHermesConnectionSubsystem::LoadOrCreatePlayerId()
 {
+	const FString SaveSlot = GetDefault<UHermesSettings>()->SaveSlotName;
+
 	if (UHermesSaveGame* SG = Cast<UHermesSaveGame>(UGameplayStatics::LoadGameFromSlot(SaveSlot, 0)))
 	{
 		if (!SG->PlayerId.IsEmpty()) return SG->PlayerId;

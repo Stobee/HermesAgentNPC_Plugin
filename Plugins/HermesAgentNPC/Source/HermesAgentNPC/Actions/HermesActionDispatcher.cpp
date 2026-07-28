@@ -3,6 +3,7 @@
 #include "Dom/JsonObject.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
+#include "Settings/HermesSettings.h"
 
 void UHermesActionDispatcher::RegisterHandler(TScriptInterface<IHermesActionHandler> Handler)
 {
@@ -49,9 +50,10 @@ void UHermesActionDispatcher::Dispatch(const FHermesActionPayload& Payload,
 
 	Chosen->Execute(Payload, OnDone);
 
-	// 15초 타임아웃 폴백 (World 가 있을 때만; 즉시성 핸들러엔 bDone 가드로 무해)
+	// 액션 응답 타임아웃 폴백 (World 가 있을 때만; 즉시성 핸들러엔 bDone 가드로 무해)
 	if (UWorld* World = GetWorld())
 	{
+		const float TimeoutSeconds = GetDefault<UHermesSettings>()->ActionTimeoutSeconds;
 		FTimerHandle Th;
 		World->GetTimerManager().SetTimer(Th, [bDone, Id, OnResult]()
 		{
@@ -61,6 +63,6 @@ void UHermesActionDispatcher::Dispatch(const FHermesActionPayload& Payload,
 			}
 			*bDone = true;
 			OnResult(HermesJson::MakeActionResult(Id, false, nullptr, TEXT("timeout")));
-		}, 15.f, false);
+		}, TimeoutSeconds, false);
 	}
 }

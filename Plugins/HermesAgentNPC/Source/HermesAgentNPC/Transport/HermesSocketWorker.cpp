@@ -8,8 +8,8 @@
 #include "HAL/PlatformProcess.h"
 #include "Math/UnrealMathUtility.h"
 
-FHermesSocketWorker::FHermesSocketWorker(const FString& InHost, int32 InPort)
-	: Host(InHost), Port(InPort)
+FHermesSocketWorker::FHermesSocketWorker(const FHermesWorkerConfig& InConfig)
+	: Config(InConfig)
 {
 }
 
@@ -44,14 +44,14 @@ bool FHermesSocketWorker::ConnectSocket()
 	}
 
 	FIPv4Address Addr;
-	if (!FIPv4Address::Parse(Host, Addr))
+	if (!FIPv4Address::Parse(Config.Host, Addr))
 	{
 		return false;
 	}
 
 	TSharedRef<FInternetAddr> InetAddr = SS->CreateInternetAddr();
 	InetAddr->SetIp(Addr.Value);
-	InetAddr->SetPort(Port);
+	InetAddr->SetPort(Config.Port);
 
 	Socket = FTcpSocketBuilder(TEXT("HermesClient")).AsBlocking().Build();
 	if (!Socket)
@@ -144,8 +144,8 @@ bool FHermesSocketWorker::ReceiveAvailable()
 
 uint32 FHermesSocketWorker::Run()
 {
-	float Backoff = 0.5f;
-	const float MaxBackoff = 30.f;
+	float Backoff = Config.InitialReconnectDelay;
+	const float MaxBackoff = Config.MaxReconnectDelay;
 
 	while (!bStopRequested)
 	{
@@ -154,7 +154,7 @@ uint32 FHermesSocketWorker::Run()
 			if (ConnectSocket())
 			{
 				bConnected = true;
-				Backoff = 0.5f; // 성공 시 리셋
+				Backoff = Config.InitialReconnectDelay; // 성공 시 리셋
 			}
 			else
 			{

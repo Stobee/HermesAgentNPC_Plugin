@@ -7,6 +7,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/Pawn.h"
 #include "Engine/GameInstance.h"
+#include "Settings/HermesSettings.h"
 
 AHermesNPCCharacter::AHermesNPCCharacter()
 {
@@ -63,6 +64,6 @@ void AHermesNPCCharacter::Tick(float DeltaSeconds)
 	AAIController* AI = Cast<AAIController>(GetController());
 	if (Player && AI)
 	{
-		AI->MoveToActor(Player, 150.f); // 150cm 근접 유지
+		AI->MoveToActor(Player, GetDefault<UHermesSettings>()->FollowDistance);
 	}
 }

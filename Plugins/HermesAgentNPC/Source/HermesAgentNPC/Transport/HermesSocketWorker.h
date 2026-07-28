@@ -4,6 +4,7 @@
 #include "HAL/ThreadSafeBool.h"
 #include "Containers/Queue.h"
 #include "Protocol/HermesFrameCodec.h"
+#include "Transport/HermesWorkerConfig.h"
 
 class FSocket;
 class FRunnableThread;
@@ -15,7 +16,7 @@ class FRunnableThread;
 class FHermesSocketWorker : public FRunnable
 {
 public:
-	FHermesSocketWorker(const FString& InHost, int32 InPort);
+	explicit FHermesSocketWorker(const FHermesWorkerConfig& InConfig);
 	virtual ~FHermesSocketWorker() override;
 
 	void Start();                            // 스레드 생성
@@ -34,8 +35,7 @@ private:
 	bool SendAllPending();   // 아웃바운드 큐 flush
 	bool ReceiveAvailable(); // 논블로킹 recv → accumulator → inbound 큐
 
-	FString Host;
-	int32 Port;
+	FHermesWorkerConfig Config;
 
 	FSocket* Socket = nullptr;
 	FRunnableThread* Thread = nullptr;

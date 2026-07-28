@@ -2,9 +2,11 @@
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Containers/Ticker.h"
+// TUniquePtr<FHermesSocketWorker> 멤버 때문에 완전한 타입이 필요하다.
+// UHT가 생성하는 생성자가 멤버 소멸자를 인스턴스화하므로 전방 선언으로는 부족하다.
+#include "Transport/HermesSocketWorker.h"
 #include "HermesConnectionSubsystem.generated.h"
 
-class FHermesSocketWorker;
 class UHermesActionDispatcher;
 class AHermesNPCCharacter;
 
