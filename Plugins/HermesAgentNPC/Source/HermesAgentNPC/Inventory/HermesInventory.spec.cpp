@@ -24,3 +24,24 @@ bool FHermesInventoryTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("qty 0"), Inv->GetQuantity(TEXT("health_potion")), 0);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHermesInventoryOverflowTest,
+	"Hermes.Inventory.AddSaturates",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHermesInventoryOverflowTest::RunTest(const FString& Parameters)
+{
+	UHermesInventoryComponent* Inv = NewObject<UHermesInventoryComponent>(GetTransientPackage());
+
+	Inv->Add(TEXT("gold"), MAX_int32);
+	TestEqual(TEXT("at max"), Inv->GetQuantity(TEXT("gold")), MAX_int32);
+
+	// 더 더해도 음수로 뒤집히지 않고 상한에서 멈춰야 한다.
+	Inv->Add(TEXT("gold"), 1);
+	TestEqual(TEXT("saturated, not negative"), Inv->GetQuantity(TEXT("gold")), MAX_int32);
+
+	Inv->Add(TEXT("gold"), MAX_int32);
+	TestEqual(TEXT("still saturated"), Inv->GetQuantity(TEXT("gold")), MAX_int32);
+
+	return true;
+}

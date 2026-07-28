@@ -28,7 +28,9 @@ void UHermesInventoryComponent::Add(const FString& ItemId, int32 Qty)
 	}
 	if (UHermesItem* It = Find(ItemId))
 	{
-		It->Quantity += Qty;
+		// 핸들러 검증과 별개로 겹쳐 막는다. 이 컴포넌트는 액션 경로 외에서도 호출된다.
+		// int32 오버플로가 나면 수량이 음수가 되어 아이템 복제 버그가 된다.
+		It->Quantity = (It->Quantity > MAX_int32 - Qty) ? MAX_int32 : It->Quantity + Qty;
 		return;
 	}
 	UHermesItem* New = NewObject<UHermesItem>(this);

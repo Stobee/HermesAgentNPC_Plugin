@@ -2,6 +2,8 @@
 #include "NPC/HermesNPCCharacter.h"
 #include "Inventory/HermesInventoryComponent.h"
 #include "Dom/JsonObject.h"
+#include "Actions/HermesActionParams.h"
+#include "Settings/HermesSettings.h"
 
 void UItemTransferActionHandler::Execute(const FHermesActionPayload& Payload, FHermesActionResultDelegate OnDone)
 {
@@ -22,12 +24,28 @@ void UItemTransferActionHandler::Execute(const FHermesActionPayload& Payload, FH
 	if (!Payload.Params.IsValid() ||
 		!Payload.Params->TryGetStringField(TEXT("direction"), Direction) ||
 		!Payload.Params->TryGetStringField(TEXT("item_id"), ItemId) ||
-		!Payload.Params->TryGetNumberField(TEXT("quantity"), Qd) || Qd < 1)
+		!Payload.Params->TryGetNumberField(TEXT("quantity"), Qd))
 	{
 		OnDone.ExecuteIfBound(false, nullptr, TEXT("invalid params"));
 		return;
 	}
-	const int32 Qty = (int32)Qd;
+
+	const UHermesSettings* Settings = GetDefault<UHermesSettings>();
+
+	if (!HermesParams::IsValidItemId(ItemId, Settings->MaxItemIdLength))
+	{
+		OnDone.ExecuteIfBound(false, nullptr, TEXT("invalid item_id"));
+		return;
+	}
+
+	// (int32) 캐스트 이전에 범위를 확정한다. Qd > INT32_MAX 면 캐스트 자체가
+	// C++ 미정의 동작이고, 통과하더라도 인벤토리 누적에서 오버플로가 난다.
+	int32 Qty = 0;
+	if (!HermesParams::IsValidQuantity(Qd, Settings->MaxItemQuantity, Qty))
+	{
+		OnDone.ExecuteIfBound(false, nullptr, TEXT("quantity out of range"));
+		return;
+	}
 
 	// give: NPC → player (NPC 인벤토리에서 차감), receive: player → NPC (NPC 인벤토리에 추가)
 	if (Direction == TEXT("give"))

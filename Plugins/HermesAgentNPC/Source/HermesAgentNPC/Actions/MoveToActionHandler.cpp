@@ -3,6 +3,8 @@
 #include "AIController.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "Dom/JsonObject.h"
+#include "Actions/HermesActionParams.h"
+#include "Settings/HermesSettings.h"
 
 void UMoveToActionHandler::Execute(const FHermesActionPayload& Payload, FHermesActionResultDelegate OnDone)
 {
@@ -21,6 +23,17 @@ void UMoveToActionHandler::Execute(const FHermesActionPayload& Payload, FHermesA
 		!(*Loc)->TryGetNumberField(TEXT("z"), Z))
 	{
 		OnDone.ExecuteIfBound(false, nullptr, TEXT("invalid location"));
+		return;
+	}
+
+	// FVector 생성 전에 검사한다. non-finite 벡터가 MoveToLocation 에 들어가면
+	// 엔진이 check 실패하거나 네비게이션이 비정상 동작한다.
+	const float CoordLimit = GetDefault<UHermesSettings>()->MaxWorldCoordinate;
+	if (!HermesParams::IsValidCoordinate(X, CoordLimit) ||
+		!HermesParams::IsValidCoordinate(Y, CoordLimit) ||
+		!HermesParams::IsValidCoordinate(Z, CoordLimit))
+	{
+		OnDone.ExecuteIfBound(false, nullptr, TEXT("coordinate out of range"));
 		return;
 	}
 
