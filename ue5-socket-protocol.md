@@ -23,11 +23,14 @@ If you implemented against v1, these are breaking changes:
 | Reconnect auth | none — `player_id` alone was accepted | `(player_id, session_token)` pair is validated (§4.2) |
 | `not_authorized` | optional allow-list | **required** (§5) |
 | Streaming | none | `chat_delta` frames (§4.9) |
+| Long actions | `action_result` claimed completion | `action_result` = accepted, `action_event` = finished (§4.10) |
+| `move_to` result | `{ "arrived": true }` immediately — **a lie** | `{ "started": true }` then a later `{ "arrived": true }` event |
 | Keepalive | server may `ping` | both sides `ping`; receive-silence means death (§4.7) |
 | Version field | none | `protocol_version: 2` in `identify` (§4.1) |
 
-The framing layer (§1) and the action catalog (§6) are unchanged, except that
-§6 now documents the bounds the client enforces.
+The framing layer (§1) is unchanged. The action catalog (§6) keeps the same four
+commands, but now documents the bounds the client enforces and each command's
+completion class.
 
 **There is no compatibility mode.** A v2 client closes the connection when
 `identified` arrives without a `session_token`. A compatibility path is a path
@@ -341,9 +344,28 @@ and reply with a matching `action_result` (same `id`).
 > `action_result`. If none arrives, the agent is told the action timed out.
 > Reply promptly, even for failures.
 
+**`action_result` acknowledges acceptance, not completion.** Some actions
+finish instantly (`follow_player`, `inventory_manage`); others take arbitrarily
+long (`move_to` across a large map, blocked by pathing). Waiting for physical
+completion before replying would blow the 15 s budget on exactly the actions
+that matter most, and no server-side timeout tuning can fix that — the server
+cannot know your map size or movement speed.
+
+So the split is:
+
+| Frame | Meaning | Deadline |
+|---|---|---|
+| `action_result` (§4.6) | "I accepted this and started it" | **within 15 s, always** |
+| `action_event` (§4.10) | "It finished / it failed" | whenever it actually happens |
+
+Instant actions send `action_result` and nothing else. Long-running actions
+send `action_result` immediately and an `action_event` later.
+
 ### 4.6 `action_result` — Client → Server
 
-Reports the outcome of an `action_request`.
+Acknowledges an `action_request` and reports the outcome **as far as it is
+known at accept time**. See the note in §4.5 — this is not a completion signal
+for long-running actions.
 
 ```json
 { "type": "action_result", "id": "act-7f3a91", "ok": true, "result": { "arrived": true } }
@@ -442,6 +464,63 @@ neither a delta nor a final response within its chat timeout (default 60 s).
 A long generation that keeps streaming is therefore never timed out, while a
 generation that stalls is caught — which is only possible because deltas exist.
 
+### 4.10 `action_event` — Client → Server
+
+Reports that a previously accepted action has **finished**. Sent only for
+actions that do not complete at accept time; see the note in §4.5.
+
+Completion:
+
+```json
+{
+  "type": "action_event",
+  "id": "act-7f3a91",
+  "event": "completed",
+  "result": { "arrived": true }
+}
+```
+
+Failure after acceptance:
+
+```json
+{
+  "type": "action_event",
+  "id": "act-7f3a91",
+  "event": "failed",
+  "error": "path blocked"
+}
+```
+
+| Field | Type | Req | Notes |
+|-------|------|-----|-------|
+| `id` | string | yes | The original `action_request.id`. |
+| `event` | string | yes | `"completed"` or `"failed"`. |
+| `result` | object | no | Structured outcome, same conventions as `action_result.result`. |
+| `error` | string | no | Failure reason when `event="failed"`. |
+
+**Rules**
+
+- An `action_event` always follows an `action_result` with the same `id`.
+  It never arrives first, and never without one.
+- **At most one `action_event` per `id`.** Servers should ignore duplicates.
+- The `id` may arrive long after the turn that requested it — potentially after
+  several `chat` exchanges. Servers must not assume it belongs to the current
+  turn.
+- If the connection drops before the event is sent, it is **lost**. Neither
+  side retries. The server should treat an accepted action with no event as
+  "outcome unknown" rather than assuming success.
+- Clients that implement no long-running actions never send this frame, and a
+  server that ignores it still works — the LLM simply learns less.
+
+**Why this matters for the agent.** With this split the NPC can say
+"알겠어요, 언덕 위로 갈게요" on `action_result` and then, seconds later,
+"도착했어요" when `action_event` arrives. Without it the client must either
+lie at accept time or blow the timeout.
+
+> **Server implementers:** feed `action_event` back into the conversation as a
+> tool observation, not as a user turn. It is the game telling the agent what
+> happened, unprompted.
+
 ---
 
 ## 5. Error codes
@@ -487,19 +566,52 @@ unrecognized `command` in an `action_request` defensively (reply `ok=false`,
 > The client keeps its own bounds regardless. It does not assume the server is
 > correct or honest.
 
-### `move_to`
+### `move_to` — long-running
+
 Move the NPC to a world location.
 ```json
 { "command": "move_to", "params": { "location": { "x": 0.0, "y": 0.0, "z": 0.0 } } }
 ```
 - `location.x/y/z`: floats, UE world coordinates (cm).
 
-### `follow_player`
+**Two-phase response.** Pathing succeeds or fails immediately; arrival takes as
+long as it takes.
+
+```jsonc
+// immediately — pathfinding accepted the destination
+{ "type": "action_result", "id": "act-1", "ok": true,
+  "result": { "started": true, "eta_seconds": 8.4 } }
+
+// later — the NPC actually got there
+{ "type": "action_event", "id": "act-1", "event": "completed",
+  "result": { "arrived": true } }
+
+// or later — it gave up
+{ "type": "action_event", "id": "act-1", "event": "failed",
+  "error": "path blocked" }
+```
+
+If pathing is rejected outright (unreachable destination, no navmesh), reply
+`action_result` with `ok=false, error="path blocked"` and send **no** event.
+
+- `eta_seconds`: float, optional. Best-effort estimate; omit if unknown.
+- `started`: bool. Always `true` when `ok=true` — present so the agent can
+  distinguish "accepted" from a legacy `arrived` payload.
+
+> `arrived: true` in `action_result` is a **v1 shape and is no longer valid**.
+> It claimed completion at accept time, which told the agent the NPC had
+> arrived when it had not yet moved.
+
+### `follow_player` — instant
+
 Start or stop following the player.
 ```json
 { "command": "follow_player", "params": { "enabled": true } }
 ```
 - `enabled`: bool — `true` starts following, `false` stops.
+
+Completes at accept time. `action_result` only; no `action_event`. Following is
+an ongoing state, not a task with an end.
 
 ### `inventory_manage`
 Query or organize the NPC inventory.
@@ -509,19 +621,39 @@ Query or organize the NPC inventory.
 - `operation`: string — e.g. `"list"`, `"sort"`, `"drop"` (game-defined).
 - `target`: optional item id or slot the operation applies to.
 
-### `item_transfer`
+### `item_transfer` — instant
+
 Give or receive an item between player and NPC.
 ```json
 { "command": "item_transfer", "params": { "direction": "give", "item_id": "health_potion", "quantity": 1 } }
 ```
 - `direction`: `"give"` (NPC → player) or `"receive"` (player → NPC).
-- `item_id`: string.
-- `quantity`: integer ≥ 1.
+- `item_id`: string, non-empty, length-bounded (see table above).
+- `quantity`: integer ≥ 1, upper-bounded (see table above).
 
-**`action_result.result` conventions** (recommended, game-defined): return the
-observable outcome so the NPC can talk about it, e.g.
-`move_to` → `{ "arrived": true }`, `inventory_manage(list)` →
-`{ "items": [ ... ] }`, `item_transfer` → `{ "transferred": 1 }`.
+Completes at accept time. `action_result` only.
+
+### Completion class summary
+
+| Command | Class | Frames sent |
+|---|---|---|
+| `move_to` | long-running | `action_result` then `action_event` |
+| `follow_player` | instant | `action_result` |
+| `inventory_manage` | instant | `action_result` |
+| `item_transfer` | instant | `action_result` |
+
+New commands must declare their class. When in doubt, make it long-running —
+an instant action that occasionally blocks will silently blow the 15 s budget.
+
+**Result payload conventions** (recommended, game-defined): return the
+observable outcome so the NPC can talk about it.
+
+| Command | `action_result.result` | `action_event.result` |
+|---|---|---|
+| `move_to` | `{ "started": true, "eta_seconds": 8.4 }` | `{ "arrived": true }` |
+| `follow_player` | `{ "following": true }` | — |
+| `inventory_manage` (`list`) | `{ "items": [ ... ] }` | — |
+| `item_transfer` | `{ "transferred": 1 }` | — |
 
 ---
 
@@ -538,13 +670,18 @@ observable outcome so the NPC can talk about it, e.g.
 4. Send `chat` frames for player utterances. Render `chat_delta.text`
    incrementally, then replace with `chat_response.text` when it arrives.
 5. Handle incoming `action_request`: validate parameters against your bounds,
-   execute, then reply `action_result` with the same `id` within ~15 s.
-   Reply even on failure.
-6. Reply to `ping` with `pong`. Send your own `ping` when idle, and treat
+   start the action, then reply `action_result` with the same `id` **within
+   ~15 s**. Reply even on failure. For long-running actions this means
+   acknowledging acceptance, **not** waiting for completion.
+6. For long-running actions, send `action_event` when they actually finish or
+   fail. Never send one without a preceding `action_result`, and never more
+   than one per `id`.
+7. Reply to `ping` with `pong`. Send your own `ping` when idle, and treat
    prolonged receive-silence as a dead connection.
-7. On disconnect, reconnect and re-`identify` with the **stored credentials**
-   to resume the conversation.
-8. Always frame with the 4-byte big-endian length prefix; always parse off the
+8. On disconnect, reconnect and re-`identify` with the **stored credentials**
+   to resume the conversation. Actions accepted before the drop will never
+   produce their `action_event`.
+9. Always frame with the 4-byte big-endian length prefix; always parse off the
    length, never off packet boundaries.
 
 ## 7b. Minimal server checklist
@@ -561,6 +698,10 @@ observable outcome so the NPC can talk about it, e.g.
 5. Reject `chat` before `identify` with `not_identified`.
 6. Stream replies as `chat_delta`, **batched to ~50 ms or a few tokens**, then
    close the turn with an authoritative `chat_response`.
+6b. Treat `action_result` as acceptance, not completion. Feed a later
+   `action_event` (§4.10) back to the agent as a tool observation. An accepted
+   action that never produces an event has an **unknown** outcome — do not
+   assume success.
 7. Constrain LLM tool output with a JSON schema or grammar (§6) so only
    whitelisted commands and in-range parameters can be produced.
 8. Rate-limit per authenticated session and bound your inference queue depth.
