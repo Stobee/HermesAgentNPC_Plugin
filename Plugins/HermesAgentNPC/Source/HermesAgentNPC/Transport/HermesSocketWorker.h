@@ -35,6 +35,9 @@ private:
 	bool SendAllPending();   // 아웃바운드 큐 flush
 	bool ReceiveAvailable(); // 논블로킹 recv → accumulator → inbound 큐
 
+	/** 총 Seconds 만큼 자되 100ms 마다 깨어나 중단 요청을 확인한다. */
+	void InterruptibleSleep(float Seconds);
+
 	FHermesWorkerConfig Config;
 
 	FSocket* Socket = nullptr;

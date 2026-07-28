@@ -164,6 +164,21 @@ bool FHermesSocketWorker::ReceiveAvailable()
 	return true;
 }
 
+void FHermesSocketWorker::InterruptibleSleep(float Seconds)
+{
+	// 통짜 Sleep 은 소멸자의 Thread->Kill(true) 대기를 그만큼 늘린다.
+	// MaxReconnectDelay 가 설정으로 최대 300초까지 열려 있어 조각내지 않으면
+	// PIE 정지가 수 분간 멈출 수 있다.
+	constexpr float Slice = 0.1f;
+	float Remaining = Seconds;
+	while (Remaining > 0.f && !bStopRequested)
+	{
+		const float Step = FMath::Min(Slice, Remaining);
+		FPlatformProcess::Sleep(Step);
+		Remaining -= Step;
+	}
+}
+
 uint32 FHermesSocketWorker::Run()
 {
 	float Backoff = Config.InitialReconnectDelay;
@@ -181,7 +196,11 @@ uint32 FHermesSocketWorker::Run()
 			else
 			{
 				const float Jitter = FMath::FRandRange(0.f, Backoff * 0.25f);
-				FPlatformProcess::Sleep(Backoff + Jitter);
+				InterruptibleSleep(Backoff + Jitter);
+				if (bStopRequested)
+				{
+					break;
+				}
 				Backoff = FMath::Min(Backoff * 2.f, MaxBackoff);
 				continue;
 			}
