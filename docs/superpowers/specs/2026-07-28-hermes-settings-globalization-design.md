@@ -1,4 +1,4 @@
-# Hermes Agent NPC — 설정 전역화 · 입력 강건성 · 프로토콜 v2 (신원 발급 + TLS)
+# Hermes Agent NPC — 설정 전역화 · 입력 강건성 · 프로토콜 v2 (신원 · TLS · 세션 운영)
 
 - 작성일: 2026-07-28
 - 상태: 승인 대기
@@ -13,7 +13,8 @@
 |---|---|---|
 | 설정 전역화 | 배포성 | 4.1~4.7 |
 | 입력 강건성 | **가용성** — 클라이언트가 이상 입력에 무너지지 않게 함 | 4.8~4.15 |
-| 신원 발급 | **보안** — 제3자의 세션 탈취 차단 | 5 |
+| 신원 발급 | **보안** — 제3자의 세션 탈취 차단 | 5.1~5.5 |
+| 세션 운영 | **기능·신뢰성** — 스트리밍 응답, 죽은 연결 탐지, 응답 타임아웃 | 5.6~5.8 |
 | TLS 전송 | **보안** — 경로상 공격자 차단 | 6 |
 
 **입력 강건성은 보안이 아니다.** 메모리 고갈·프레임 행·미정의 동작을 막는 것은 클라이언트를 견고하게 만들 뿐 접근 통제와 무관하다. 실제 보안 효과는 5·6절에서만 나온다.
@@ -115,6 +116,30 @@ else PendingChats.Add(Json);   // 상한 없음
 
 **도청보다 주입이 더 큰 위험이다.** 경로상 공격자는 대화 내용을 엿듣는 데 그치지 않고 `action_request` 프레임을 **직접 만들어 넣을 수 있다.** 화이트리스트와 파라미터 바운드(4.11)가 피해 범위를 제한하지만, NPC는 여전히 공격자가 고른 액션을 실행한다. 또한 클라이언트가 접속 대상이 진짜 Hermes 서버인지 확인하지 않으므로 가짜 서버로 유인될 수 있다.
 
+### 1.5 TCP를 직접 쓰면서 상위 프로토콜이 주던 것을 만들지 않았다
+
+양방향 서버 푸시(`action_request`)가 필요한 구조에서 커스텀 TCP는 타당한 선택이고, 프레이밍도 올바르게 구현되어 있다. 다만 WebSocket 같은 상위 프로토콜이 기본 제공하는 세션 관리가 비어 있다.
+
+**(a) 반열림(half-open) 연결을 탐지하지 못한다**
+
+소켓에 `SetKeepAlive` 설정이 없고, **클라이언트가 `ping`을 보내지 않는다.** `HermesConnectionSubsystem.cpp:146`은 서버가 보낸 ping에 pong으로 답할 뿐이다.
+
+Wi-Fi 전환, NAT 타임아웃, 케이블 분리처럼 조용히 끊기는 경우 TCP는 알려주지 않는다. `bConnected`는 계속 `true`로 남고 실패는 **다음 송신 시점까지 미뤄진다.** 그런데 송신은 플레이어가 말을 걸 때 일어나므로, 재연결이 *"NPC에게 말을 거는 바로 그 순간"* 에 시작된다 — 가장 나쁜 타이밍이다.
+
+**(b) chat 요청에 타임아웃이 없다**
+
+`HermesDialogueWidget.cpp:41`이 `"생각 중..."`을 띄우지만 응답이 오지 않으면 그대로 남는다. 액션에는 15초 타임아웃이 있으나(`HermesActionDispatcher.cpp:64`) 대화에는 없다. 로컬 GPU 추론은 정상적으로도 수십 초가 걸릴 수 있어, **"느린 것"과 "죽은 것"을 구분할 수단**이 필요하다.
+
+**(c) 응답을 상관(correlate)하지 않는다**
+
+`UHermesDialogueWidget::HandleChatResponse(const FString& Text, const FString& Id)`가 **`Id`를 사용하지 않는다**(`HermesDialogueWidget.cpp:45-51`). 늦게 도착한 이전 발화의 응답이 현재 화면을 덮어쓴다.
+
+**(d) 스트리밍이 없다**
+
+프로토콜에 부분 응답 개념이 없어 `chat_response`가 통째로 도착한다. LLM NPC에서 수 초의 침묵 후 한 번에 출력되는 것과 즉시 말을 시작하는 것은 체감이 크게 다르다. llama-server는 SSE 스트리밍을 지원하므로 **병목은 추론이 아니라 이 구간의 프로토콜이다.**
+
+프로토콜을 v2로 개정하는 지금이 이 넷을 넣을 수 있는 가장 저렴한 시점이다. 나중에 하면 v3가 필요하다.
+
 ## 2. 목표와 비목표
 
 ### 목표
@@ -127,6 +152,7 @@ else PendingChats.Add(Json);   // 상한 없음
 - 1.3을 해소해, **`player_id`를 아는 것만으로는 남의 세션에 접근할 수 없게** 한다.
 - 1.4를 해소해, **경로상 공격자가 대화를 엿보거나 액션을 주입하거나 가짜 서버로 유인할 수 없게** 한다.
 - 공인 인증서를 받을 수 없는 **LAN 자체 서명 환경에서도** 위 보장이 성립하게 한다.
+- 1.5를 해소해, **NPC가 응답을 즉시 말하기 시작하고**, 죽은 연결이 사용 시점이 아니라 발생 시점에 탐지되며, 응답 없는 대화가 무한히 대기하지 않게 한다.
 
 ### 비목표 (명시적 제외)
 
@@ -257,6 +283,20 @@ public:
     UPROPERTY(EditAnywhere, config, Category="Connection|Tuning", meta=(ClampMin="1", ClampMax="1000"))
     int32 MaxActionsPerSecond = 20;
 
+    // ---- Connection|Liveness ----
+
+    /** 유휴 상태에서 서버로 ping을 보내는 간격(초). */
+    UPROPERTY(EditAnywhere, config, Category="Connection|Liveness", meta=(ClampMin="5.0", ClampMax="300.0"))
+    float KeepAlivePingIntervalSeconds = 20.f;
+
+    /** 이 시간 동안 어떤 프레임도 받지 못하면 연결을 죽은 것으로 간주한다(초). */
+    UPROPERTY(EditAnywhere, config, Category="Connection|Liveness", meta=(ClampMin="10.0", ClampMax="600.0"))
+    float PeerTimeoutSeconds = 60.f;
+
+    /** chat 발화 후 첫 응답(델타 포함)까지 기다리는 한계(초). 델타가 오면 갱신된다. */
+    UPROPERTY(EditAnywhere, config, Category="Connection|Liveness", meta=(ClampMin="5.0", ClampMax="300.0"))
+    float ChatResponseTimeoutSeconds = 60.f;
+
     // ---- Gameplay ----
 
     /** 플레이어 자격 증명을 보관하는 SaveGame 슬롯 이름. */
@@ -300,6 +340,8 @@ public:
 - `-HermesHost=` 가 있고 비어있지 않으면 Host를 덮는다. 없거나 빈 문자열이면 ini 값을 유지한다.
 - `-HermesPort=` 가 있고 정수로 파싱되며 1~65535이면 Port를 덮는다. 파싱 실패나 범위 밖이면 ini 값을 유지한다.
 - Host/Port는 독립 판정한다. 한쪽만 지정해도 다른 쪽은 영향받지 않는다.
+
+**`PeerTimeoutSeconds`는 `KeepAlivePingIntervalSeconds`보다 충분히 커야 한다.** 그렇지 않으면 정상 연결이 죽은 것으로 오판된다. 시작 시 `PeerTimeoutSeconds < KeepAlivePingIntervalSeconds * 2`이면 경고 로그를 남긴다. 값을 강제로 교정하지는 않는다 — 설정자의 의도를 덮어쓰기보다 문제를 드러내는 편이 낫다.
 
 ### 4.3 `MaxBodySize`를 제외하는 근거
 
@@ -576,10 +618,12 @@ OnDone.BindLambda([bDone, Th, WeakThis, Id, OnResult](bool bOk, TSharedPtr<FJson
 | 비정상 파라미터 | 하드 바운드(4.11) | `ok=false` 회신 |
 | 종료 요청 | 조각 sleep(4.8) | 100ms 내 종료 |
 | TLS 핸드셰이크 지연 | 핸드셰이크 타임아웃(6.6) | 연결 끊고 재연결 |
+| 조용히 죽은 연결 | keepalive + 수신 침묵 판정(5.7) | `PeerTimeout` 내 재연결 |
+| 응답 없는 대화 | 발화 추적 + 델타 갱신(5.8) | `OnChatFailed` 통지 |
 
-## 5. 설계 — 프로토콜 v2 신원 발급
+## 5. 설계 — 프로토콜 v2 (신원 발급과 세션 운영)
 
-1.3을 해소한다. **`ue5-socket-protocol.md`를 v2로 개정하며, 서버는 이 계약을 구현해야 한다.**
+1.3과 1.5를 해소한다. **`ue5-socket-protocol.md`를 v2로 개정하며, 서버는 이 계약을 구현해야 한다.**
 
 ### 5.1 원칙
 
@@ -643,6 +687,92 @@ bool ParseIdentified(const TSharedPtr<FJsonObject>& Obj,
 ```
 
 `ParseIdentified()`를 순수 함수로 두어 5.4의 버전 판정을 단독 테스트한다.
+
+### 5.6 스트리밍 응답 — 1.5(d)
+
+신규 프레임 `chat_delta`(Server → Client)를 도입한다.
+
+```json
+{ "type": "chat_delta", "id": "c-0001", "seq": 0, "text": "알겠어요, " }
+```
+
+종결은 기존 `chat_response`가 담당하며 **최종 전체 텍스트를 그대로 싣는다.**
+
+```json
+{ "type": "chat_response", "id": "c-0001",
+  "text": "알겠어요, 언덕 위로 이동할게요.", "actions": [ ... ] }
+```
+
+**델타는 표시용 힌트이고 `chat_response.text`가 정본이다.** 클라이언트는 델타를 이어붙여 즉시 보여주다가, `chat_response`가 오면 그 값으로 **교체**한다. 델타를 놓치거나 중복 처리해도 최종 화면이 자기 교정되며, 델타를 무시하는 구현도 그대로 동작한다.
+
+**서버는 델타를 묶어 보내야 한다.** 토큰 하나당 프레임 하나는 초당 수십~수백 프레임이 되어 4.10의 틱 예산과 큐 상한을 정상 동작 중에 압박한다. **50ms 또는 토큰 몇 개 단위로 묶어 보내는 것**을 프로토콜 문서에 요구사항으로 명시한다. 클라이언트 상한을 이 때문에 올리지는 않는다 — 상한은 비정상 피어를 막기 위한 것이고, 정상 서버가 그 선에 닿는다면 서버 쪽 배치 정책이 잘못된 것이다.
+
+**클라이언트 변경.** `UHermesConnectionSubsystem`에 델리게이트를 추가한다.
+
+```cpp
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnChatDelta, const FString& /*Text*/, const FString& /*Id*/);
+FOnChatDelta OnChatDelta;
+```
+
+`UHermesDialogueWidget`은 델타를 누적 표시하고 `chat_response`에서 전체 텍스트로 교체한다. 액션 요청은 스트리밍과 무관하게 기존 경로로 처리된다.
+
+### 5.7 연결 유지와 죽은 연결 탐지 — 1.5(a)
+
+**클라이언트가 ping을 보낸다.** `KeepAlivePingIntervalSeconds` 동안 아무것도 보내지 않았으면 `ping`을 전송한다.
+
+**수신 침묵으로 사망을 판정한다.** `PeerTimeoutSeconds` 동안 **어떤 종류의 프레임도** 받지 못하면 연결을 죽은 것으로 간주하고 재연결한다. pong뿐 아니라 모든 수신이 생존 신호이므로, 대화가 활발할 때는 별도 ping 없이도 판정이 성립한다.
+
+판정 로직은 게임 스레드(`UHermesConnectionSubsystem::Tick`)에 둔다. 프레임 종류를 아는 쪽이 여기이고, 워커를 프로토콜로부터 분리한 상태를 유지하기 위함이다. 워커에는 재연결을 요청하는 진입점만 추가한다.
+
+```cpp
+/** 현재 연결을 끊고 재연결 루프로 돌아가게 한다. 게임 스레드에서 호출. */
+void FHermesSocketWorker::RequestReconnect();
+```
+
+결정 로직은 시간을 인자로 받는 순수 함수로 분리해 단독 테스트한다.
+
+```cpp
+namespace HermesLiveness
+{
+    enum class EDecision : uint8 { Nothing, SendPing, DeclareDead };
+
+    EDecision Evaluate(double Now, double LastRecvTime, double LastSendTime,
+                       float PingInterval, float PeerTimeout);
+}
+```
+
+연결이 성립하지 않은 동안에는 평가하지 않는다 — 재연결 대기 중에는 수신이 없는 것이 정상이다.
+
+**소켓 수준 keepalive도 함께 켠다.** 평문 경로는 `FSocket`의 keepalive 설정을, TLS 경로는 OpenSSL이 소유한 소켓에 `SO_KEEPALIVE`를 설정한다. OS 기본 keepalive 주기는 보통 2시간이라 단독으로는 쓸모가 없지만, 애플리케이션 ping이 놓치는 하위 계층 경로를 보완한다.
+
+### 5.8 대화 응답 타임아웃과 상관 — 1.5(b), (c)
+
+**진행 중인 발화를 추적한다.** `SendChat()`이 만든 `id`와 전송 시각을 보관하고, `ChatResponseTimeoutSeconds` 안에 아무 응답도 없으면 실패로 처리한다.
+
+**델타는 타이머를 갱신한다.** `chat_delta`가 도착하면 해당 `id`의 마지막 진행 시각을 갱신한다. 이로써 **긴 생성이 타임아웃되지 않으면서도, 생성이 멈추면 탐지된다.** 스트리밍(5.6)이 이 판정을 정확하게 만들어 주는 지점이다.
+
+```cpp
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnChatFailed, const FString& /*Id*/, const FString& /*Reason*/);
+FOnChatFailed OnChatFailed;
+```
+
+**상관 규칙.** 위젯은 **가장 최근에 보낸 발화의 `id`** 와 일치하는 델타·응답만 화면에 반영하고, 그 외 `id`는 무시한다. 늦게 도착한 이전 응답이 현재 화면을 덮어쓰는 문제(1.5-c)가 사라진다. 무시한 프레임은 로그로 남긴다.
+
+연결이 끊기면 진행 중인 발화를 모두 실패 처리하고 추적 목록을 비운다. 재연결 후 서버가 이전 발화를 이어서 응답하더라도 그 `id`는 이미 추적 대상이 아니므로 위 상관 규칙에 의해 무시된다.
+
+추적기도 시간 주입형 순수 클래스로 분리한다.
+
+```cpp
+class FHermesPendingChats
+{
+public:
+    void Add(const FString& Id, double Now);
+    void Touch(const FString& Id, double Now);        // 델타 수신
+    void Remove(const FString& Id);                    // 최종 응답 수신
+    void CollectTimedOut(double Now, float Timeout, TArray<FString>& Out);
+    void Clear();
+};
+```
 
 ## 6. 설계 — TLS 전송
 
@@ -787,6 +917,22 @@ TLS 설정에 커맨드라인 오버라이드를 두지 않는 것(4.1)도 같�
 
 - 상한 미만에서는 버리지 않음 / 상한 도달 시 가장 오래된 것부터 버림 / 반환된 폐기 개수가 정확함
 
+**`Connection/HermesLiveness.spec.cpp`** — 5.7 판정 로직. 시간 주입형이라 단독 검증이 가능하다.
+
+- 최근 수신·송신이 있으면 `Nothing`
+- 송신 침묵이 `PingInterval`을 넘으면 `SendPing`
+- 수신 침묵이 `PeerTimeout`을 넘으면 `DeclareDead`
+- 수신 침묵이 타임아웃을 넘었고 송신 침묵도 넘었을 때 **`DeclareDead`가 우선**한다 (죽은 연결에 ping을 보내지 않는다)
+- 경계값(정확히 `PingInterval`, 정확히 `PeerTimeout`)의 판정이 문서와 일치함
+
+**`Connection/HermesPendingChats.spec.cpp`** — 5.8 추적기.
+
+- 추가 후 타임아웃 전에는 수집되지 않음
+- 타임아웃 경과 후 수집됨
+- `Touch()`(델타 수신)가 타이머를 갱신해 **긴 생성이 타임아웃되지 않음**
+- `Remove()` 후에는 수집되지 않음
+- `Clear()` 후 목록이 비고, 여러 건 중 만료된 것만 선별 수집됨
+
 **`Transport/HermesTlsPolicy.spec.cpp`** — TLS에서 네트워크 없이 검증 가능한 순수 결정 로직만 대상으로 한다.
 
 - 검증 이름 결정: `TlsServerName`이 비었으면 `Host`, 비어있지 않으면 그 값
@@ -836,6 +982,15 @@ UnrealEditor-Cmd.exe HermesAgentNPC.uproject -ExecCmds="Automation RunTests Herm
 - 다른 플레이어의 `player_id`만 넣고 토큰은 자기 것으로 접속 → 거부된다
 - v1 서버에 접속 → 명확한 에러 로그와 함께 연결이 닫히고 조용히 동작하지 않는다
 
+세션 운영:
+
+- 대화 중 응답이 **한 번에 나오지 않고 이어서 출력된다** (스트리밍 확인)
+- 델타를 보내다 중단하는 스텁 서버 → `ChatResponseTimeoutSeconds` 후 실패로 표시되고 `"생각 중..."`이 남지 않는다
+- 긴 응답(60초 이상 생성)이 델타를 계속 보내는 동안 → 타임아웃되지 않는다
+- **연결된 상태에서 서버 프로세스를 강제 종료**(정상 FIN 없이) → `PeerTimeoutSeconds` 안에 죽은 연결로 판정하고 재연결을 시작한다. 플레이어가 말을 걸 때까지 기다리지 않는다
+- 유휴 상태를 `KeepAlivePingIntervalSeconds` 이상 유지 → 클라이언트가 ping을 보내고 pong을 받는다
+- 이전 발화의 늦은 응답이 도착 → 현재 화면을 덮어쓰지 않고 무시 로그만 남는다
+
 TLS:
 
 - 올바른 인증서와 일치하는 핀 → 접속 성공, 대화·액션이 정상 동작한다
@@ -851,6 +1006,8 @@ TLS:
 ## 8. 문서 갱신
 
 - `ue5-socket-protocol.md` → **v2로 개정.** 헤더 전송 정의를 TLS 1.2+ 위의 TCP로 변경(§1 프레이밍 규격 자체는 불변). §3 핸드셰이크에 발급/검증 두 경로, §4.1 identify에 `protocol_version`·`session_token`, §4.2 identified에 `player_id`·`session_token`, §5 `not_authorized`를 선택 사항에서 **필수**로 변경. §6에 클라이언트가 적용하는 파라미터 범위 검증과 레이트 리밋을 명시(서버 구현자가 `ok=false` 회신을 이해할 수 있어야 한다). §7 체크리스트의 `192.168.0.111:8770` 고정 표현을 "설정된 엔드포인트"로 교체. §8 참조 클라이언트도 TLS를 쓰도록 갱신 필요함을 명시.
+  - **신규 §4.9 `chat_delta`** — 필드 정의, `chat_response.text`가 정본이라는 규칙, **델타 배치 요구사항(50ms 또는 토큰 몇 개 단위)** 을 서버 구현 요구사항으로 명시.
+  - **§4.7 ping/pong 개정** — 양쪽 모두 주기적 ping을 보낼 수 있고, 클라이언트는 `PeerTimeout` 침묵을 연결 사망으로 판정한다는 점을 규정. 서버도 같은 규칙을 두도록 권고.
 - `README.md` — 서버 설정 절 추가(Project Settings 경로, ini 예시, 커맨드라인 인자, Shipping에서 비활성화됨). **TLS 설정 절 추가** — 핀 해시 생성 명령(6.4), 사설 CA 사용법, 개발 중 평문 사용 시 주의.
 - `HermesAgentNPC_Documentation.html` — 하드코딩 주소 서술을 설정 기반으로 교체하고 TLS 요구사항을 반영.
 
@@ -873,7 +1030,11 @@ TLS:
 - [ ] TLS 실패가 평문 폴백으로 이어지지 않는다
 - [ ] Shipping 구성에서 `bUseTLS=False`가 무시되고 TLS가 강제된다
 - [ ] 패킷 캡처에서 세션 토큰과 대화 내용이 평문으로 보이지 않는다
-- [ ] 신규 spec 테스트 5종(`HermesSettings`, `HermesActionParams`, `HermesRateLimiter`, `HermesUtil`, `HermesTlsPolicy`)과 확장된 기존 테스트 2종(`HermesMessages`, `HermesInventory`)이 통과한다
+- [ ] NPC 응답이 스트리밍으로 출력되고, `chat_response`가 최종 텍스트로 교체한다
+- [ ] 서버 강제 종료 시 `PeerTimeoutSeconds` 안에 죽은 연결을 판정하고 재연결한다
+- [ ] 응답 없는 발화가 타임아웃으로 실패 처리되고, 델타가 오는 동안에는 타임아웃되지 않는다
+- [ ] 이전 발화의 늦은 응답이 현재 화면을 덮어쓰지 않는다
+- [ ] 신규 spec 테스트 7종(`HermesSettings`, `HermesActionParams`, `HermesRateLimiter`, `HermesUtil`, `HermesTlsPolicy`, `HermesLiveness`, `HermesPendingChats`)과 확장된 기존 테스트 2종(`HermesMessages`, `HermesInventory`)이 통과한다
 - [ ] 기존 자동화 테스트 5종이 통과한다 (identify 형식 변경분 기대값 갱신 포함)
 - [ ] 7절 수동 검증 항목이 확인된다
 - [ ] 프로토콜 문서가 v2로 개정되고, README·HTML 문서가 갱신된다
@@ -894,7 +1055,7 @@ TLS:
 | 기기 소유자의 토큰 추출 | **의도적으로 미해결** | — |
 | 서버 키 유출 후 원격 핀 갱신 | 미해결 | 10.2 |
 | 서버 자원 고갈 (연결·메시지 폭주) | 미해결 | 10.3 |
-| 프롬프트 인젝션 | 부분 완화 | 10.3 |
+| 프롬프트 인젝션 | 부분 완화 (서버 문법 제약 도입 시 크게 축소) | 10.3, 10.6 |
 
 ### 10.2 자격 증명·핀 수명 관리
 
@@ -906,7 +1067,7 @@ TLS:
 ### 10.3 서버측 과제 (이 저장소 밖)
 
 - **레이트 리밋** — 연결 수·메시지 빈도 제한이 없으면 llama-server(GPU 자원)까지 과부하가 전파된다. 본 설계의 클라이언트측 상한과 레이트 리밋은 **클라이언트를 보호할 뿐 서버를 보호하지 않는다.** TLS와 신원 발급이 도입되면 인증된 세션 단위로 제한을 걸 수 있어 구현이 오히려 쉬워진다.
-- **프롬프트 인젝션** — 플레이어 발화에 심긴 지시문으로 LLM이 의도치 않은 액션을 호출할 수 있다. 화이트리스트는 "무엇을 실행할 수 있는가"만 막고 "언제 실행하는가"는 LLM 판단에 남는다. 클라이언트측 완화는 4.11의 파라미터 하드 바운드와 4.13의 레이트 리밋이 전부다.
+- **프롬프트 인젝션** — 플레이어 발화에 심긴 지시문으로 LLM이 의도치 않은 액션을 호출할 수 있다. 화이트리스트는 "무엇을 실행할 수 있는가"만 막고 "언제 실행하는가"는 LLM 판단에 남는다. 클라이언트측 완화는 4.11의 파라미터 하드 바운드와 4.13의 레이트 리밋이 전부다. **서버측에서는 10.6(a)의 문법 제약 디코딩이 가장 효과적인 수단이다** — 미등록 명령과 범위 밖 파라미터를 생성 불가능하게 만든다.
 
 ### 10.4 DNS 해석 블로킹 잔여 지연
 
@@ -925,3 +1086,35 @@ TLS:
 TLS 종단을 리버스 프록시(nginx 등)에 맡기고 애플리케이션은 평문 루프백만 다루는 구성도 가능하다. 그 경우 인증서·핀 관리가 프록시 설정으로 분리되어 서버 코드가 단순해진다.
 
 클라이언트는 `ue5-socket-protocol.md`가 자기완결적 계약 역할을 하므로 서버 내부 구조에 영향받지 않는다.
+
+### 10.6 llama-server 연동 가이드 (서버 구현 참고)
+
+에이전트 서버 ↔ llama-server 구간은 이 저장소 밖이지만, 위 프로토콜 요구사항을 만족하려면 이 구간의 설계가 따라와야 한다. 재구축 시 참고할 지침을 남긴다.
+
+**전송 방식에는 선택의 여지가 거의 없다.** `llama-server`는 HTTP만 노출한다 — OpenAI 호환 `/v1/chat/completions`와 네이티브 `/completion`. 소켓 프로토콜은 없다. 따라서 과제는 프로토콜 교체가 아니라 HTTP를 제대로 쓰는 것이다.
+
+**(a) 문법 제약 디코딩 — 액션 화이트리스트의 구조적 강제**
+
+가장 중요한 항목이다. 지금은 LLM이 자유 생성한 출력에서 JSON을 추출하고 사후에 걸러낸다. llama.cpp는 GBNF 문법 또는 JSON 스키마로 **디코딩 단계에서 출력 형태를 강제**할 수 있다.
+
+`command`를 화이트리스트 4종의 enum으로, `quantity`를 `minimum`/`maximum`이 있는 정수로 스키마에 박아두면, **범위 밖 값이나 미등록 명령은 생성 자체가 불가능해진다.** 걸러지는 것이 아니라 토큰 샘플링에서 배제된다. 프롬프트 인젝션이 다른 툴 호출을 유도해도 스키마에 없는 이름은 나올 수 없으므로, 10.3의 프롬프트 인젝션 위험이 실질적으로 축소된다.
+
+**클라이언트의 파라미터 하드 바운드(4.11)는 그대로 둔다.** 클라이언트가 서버를 신뢰하지 않는 것이 이 설계의 전제이므로 두 겹으로 간다.
+
+**(b) 스트리밍 (5.6의 전제)**
+
+`llama-server`는 SSE 스트리밍을 지원한다. 에이전트는 이를 받아 `chat_delta` 프레임으로 중계하되, **토큰 단위가 아니라 50ms 또는 토큰 몇 개 단위로 묶어** 보낸다 (5.6). 묶지 않으면 클라이언트의 틱 예산과 큐 상한을 정상 동작 중에 압박한다.
+
+**(c) KV 캐시 재사용과 슬롯 관리**
+
+- 프롬프트 접두사(시스템 프롬프트 + 대화 히스토리) 캐시 재사용을 켜면 응답 지연이 크게 줄어든다.
+- 병렬 슬롯 수가 동시 처리 한계다. NPC나 플레이어가 여럿이면 이 값이 곧 처리량 상한이 된다.
+- 슬롯 상태를 디스크에 저장·복원할 수 있으므로, 재접속 시 KV 캐시째 복원하면 맥락 재구성 비용이 사라진다. **10.5의 "대화 저장소" 설계와 직결되는 지점이다.**
+
+**(d) 연결과 부하 관리**
+
+- llama-server로의 HTTP 연결은 keep-alive로 재사용한다. 요청마다 TCP(및 TLS) 핸드셰이크를 반복하지 않는다.
+- `/health`를 폴링해 모델 로딩 중과 준비 완료를 구분하고, 준비 전에는 클라이언트에 그 상태를 알린다.
+- **슬롯이 포화되면 큐에 넣되 큐 깊이에 상한을 둔다.** GPU는 하나뿐이므로 이 상한이 10.3에서 말한 서버측 과부하 방어의 실제 구현 지점이다. 5절의 인증이 도입되면 세션 단위로 제한을 걸 수 있어 구현이 오히려 쉬워진다.
+
+> llama.cpp의 정확한 파라미터·엔드포인트 이름은 버전에 따라 달라진다. 구현 시 사용하는 빌드의 `server` 문서로 확인한다. 본 절은 필요한 기능을 규정할 뿐 API 이름을 확정하지 않는다.
