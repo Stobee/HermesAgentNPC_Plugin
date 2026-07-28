@@ -762,16 +762,23 @@ EOF
 
 이어지는 소켓 생성부는 선택된 주소의 프로토콜을 따르도록 바꾼다.
 
+**`FTcpSocketBuilder` 를 쓸 수 없다.** 이 빌더는 `FIPv4Endpoint` 에서 프로토콜을 유도하므로 구조적으로 IPv4 전용이고, 프로토콜을 지정하는 메서드가 없다(`WithProtocol` 은 존재하지 않는다). `ISocketSubsystem::CreateSocket` 을 직접 부른다.
+
 ```cpp
-	Socket = FTcpSocketBuilder(TEXT("HermesClient"))
-		.AsBlocking()
-		.WithProtocol(Chosen->Address->GetProtocolType())
-		.Build();
+	// FTcpSocketBuilder 는 FIPv4Endpoint 에서 프로토콜을 유도하므로 구조적으로
+	// IPv4 전용이다. IPv6 폴백을 지원하려면 CreateSocket 을 직접 불러야 한다.
+	Socket = SS->CreateSocket(NAME_Stream, TEXT("HermesClient"),
+		Chosen->Address->GetProtocolType());
 	if (!Socket)
 	{
 		return false;
 	}
+
+	// 빌더의 AsBlocking() 과 동일하게 맞춘다. 연결 후 논블로킹으로 전환한다.
+	Socket->SetNonBlocking(false);
 ```
+
+`#include "Common/TcpSocketBuilder.h"` 는 더 이상 필요 없으므로 지운다. 대신 `#include "SocketTypes.h"` 와 `#include "IPAddress.h"` 를 추가한다.
 
 - [ ] **Step 2: 빌드 및 테스트**
 
@@ -3941,7 +3948,7 @@ private:
 #include "Transport/HermesPlainTransport.h"
 #include "Sockets.h"
 #include "SocketSubsystem.h"
-#include "Common/TcpSocketBuilder.h"
+#include "SocketTypes.h"
 #include "IPAddress.h"
 
 FHermesPlainTransport::~FHermesPlainTransport()
@@ -3951,14 +3958,21 @@ FHermesPlainTransport::~FHermesPlainTransport()
 
 bool FHermesPlainTransport::Connect(const FHermesWorkerConfig& Config, const FInternetAddr& Addr)
 {
-	Socket = FTcpSocketBuilder(TEXT("HermesClient"))
-		.AsBlocking()
-		.WithProtocol(Addr.GetProtocolType())
-		.Build();
+	ISocketSubsystem* SS = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+	if (!SS)
+	{
+		return false;
+	}
+
+	// FTcpSocketBuilder 는 FIPv4Endpoint 에서 프로토콜을 유도해 IPv4 전용이다.
+	// Task 3 과 동일한 이유로 CreateSocket 을 직접 부른다.
+	Socket = SS->CreateSocket(NAME_Stream, TEXT("HermesClient"), Addr.GetProtocolType());
 	if (!Socket)
 	{
 		return false;
 	}
+
+	Socket->SetNonBlocking(false);   // 연결까지는 블로킹
 
 	if (!Socket->Connect(Addr))
 	{

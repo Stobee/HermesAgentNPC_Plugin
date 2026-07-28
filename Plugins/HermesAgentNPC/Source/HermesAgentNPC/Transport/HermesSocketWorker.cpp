@@ -2,8 +2,8 @@
 #include "Protocol/HermesFrameCodec.h"
 #include "Sockets.h"
 #include "SocketSubsystem.h"
-#include "Common/TcpSocketBuilder.h"
-#include "Interfaces/IPv4/IPv4Address.h"
+#include "SocketTypes.h"
+#include "IPAddress.h"
 #include "HAL/RunnableThread.h"
 #include "HAL/PlatformProcess.h"
 #include "Math/UnrealMathUtility.h"
@@ -43,21 +43,43 @@ bool FHermesSocketWorker::ConnectSocket()
 		return false;
 	}
 
-	FIPv4Address Addr;
-	if (!FIPv4Address::Parse(Config.Host, Addr))
+	// 호스트명과 IP를 모두 처리한다. 컨테이너명·k8s 서비스명 같은 유동 주소 대응.
+	// 동기 호출이라 도달 불가 호스트명에서 OS DNS 타임아웃까지 멈추지만,
+	// 이 함수는 워커 전용 스레드에서만 실행되므로 게임 스레드는 영향받지 않는다.
+	FAddressInfoResult Result = SS->GetAddressInfo(*Config.Host, nullptr,
+		EAddressInfoFlags::Default, NAME_None);
+	if (Result.ReturnCode != SE_NO_ERROR || Result.Results.Num() == 0)
 	{
 		return false;
 	}
 
-	TSharedRef<FInternetAddr> InetAddr = SS->CreateInternetAddr();
-	InetAddr->SetIp(Addr.Value);
+	// IPv4 우선. 듀얼스택에서 OS가 IPv6를 먼저 주더라도 서버가 IPv4만 수신하면
+	// 접속이 실패하므로, 기존 환경의 동작을 바꾸지 않기 위해 IPv4를 먼저 고른다.
+	const FAddressInfoResultData* Chosen = &Result.Results[0];
+	for (const FAddressInfoResultData& R : Result.Results)
+	{
+		if (R.Address->GetProtocolType() == FNetworkProtocolTypes::IPv4)
+		{
+			Chosen = &R;
+			break;
+		}
+	}
+
+	TSharedRef<FInternetAddr> InetAddr = Chosen->Address->Clone();
 	InetAddr->SetPort(Config.Port);
 
-	Socket = FTcpSocketBuilder(TEXT("HermesClient")).AsBlocking().Build();
+	// 소켓은 선택된 주소의 프로토콜을 따라야 한다.
+	// FTcpSocketBuilder 는 FIPv4Endpoint 에서 프로토콜을 유도하므로 구조적으로
+	// IPv4 전용이다. IPv6 폴백을 지원하려면 CreateSocket 을 직접 불러야 한다.
+	Socket = SS->CreateSocket(NAME_Stream, TEXT("HermesClient"),
+		Chosen->Address->GetProtocolType());
 	if (!Socket)
 	{
 		return false;
 	}
+
+	// 빌더의 AsBlocking() 과 동일하게 맞춘다. 연결 후 논블로킹으로 전환한다.
+	Socket->SetNonBlocking(false);
 
 	if (!Socket->Connect(*InetAddr))
 	{
