@@ -1,22 +1,32 @@
 # Hermes UE5 클라이언트 — 작업 진행 기록
 
-> 마지막 업데이트: 2026-07-24 (독립 플러그인 전환 완료)
-> 브랜치: `master`
-> 계획 문서: `docs/superpowers/plans/2026-07-24-hermes-ue5-plugin.md`
+> 마지막 업데이트: 2026-07-28 (Phase 1 & Phase 2 Task 1~8 완료)
+> 브랜치: `feat/settings-globalization-protocol-v2`
+> 계획 문서: `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md`
 
 ## 완료 & 검증된 태스크 (전체 커밋 완료)
 
-- [x] **Task 1** `Plugins/HermesAgentNPC/HermesAgentNPC.uplugin` 플러그인 매니페스트 작성 (`"CanContainContent": true`)
-- [x] **Task 2** C++ 소스 모듈 18개 전체를 `Plugins/HermesAgentNPC/Source/HermesAgentNPC/` 디렉토리로 이동
-- [x] **Task 3** 핵심 블루프린트 에셋(`BP_HermesNPC`, `WBP_HermesDialogue`)을 `Plugins/HermesAgentNPC/Content/`로 이동 및 프로젝트 `Content/` 내 ThirdPerson 템플릿 제거 정리
-- [x] **Task 4** `HermesAgentNPC.uproject`에 `HermesAgentNPC` 플러그인 활성화 설정
-- [x] **Task 5** 플러그인 컴파일 및 UE Automation Test 5종 통과 (`EXIT CODE: 0`)
+- [x] **Task 1** `UHermesSettings` 설정 클래스 및 `-HermesHost=` / `-HermesPort=` 커맨드라인 오버라이드 구현 (`Hermes.Settings.CommandLineOverride` PASS)
+- [x] **Task 2** 하드코딩된 서버 IP/포트/타임아웃/슬롯 상수를 `UHermesSettings` 소비 구조로 전면 전환
+- [x] **Task 3** `ISocketSubsystem::GetAddressInfo` 기반 DNS 해석 도입으로 호스트명 지원
+- [x] **Task 4** 소멸자 백오프 대기를 100ms 조각 sleep으로 교체하여 PIE 정지 응답성 확보 (Max 100ms 지연)
+- [x] **Task 5** 액션 파라미터(좌표/수량/ID) 하드 바운드 검증 및 인벤토리 오버플로 포화 처리 (`Hermes.ActionParams.*`, `Hermes.Inventory.AddSaturates` PASS)
+- [x] **Task 6** 액션 토큰 버킷 레이트 리미터 도입 및 타이머 핸들 회수 (`Hermes.RateLimiter.TokenBucket` PASS)
+- [x] **Task 7** 인바운드/아웃바운드 큐 상한 및 틱 처리 예산(`MaxInboundFramesPerTick`) 구현
+- [x] **Task 8** `identified` 이전 보류 발화 상한(`HermesUtil::PushBounded`, `MaxPendingChats`) 구현 (`Hermes.Util.PushBounded` PASS)
 
-## 자동화 테스트 결과 (플러그인 패키지 모듈 검증)
+## 자동화 테스트 결과 (총 12종 전원 PASS)
 
+- `Hermes.ActionParams.Coordinate` : PASS
+- `Hermes.ActionParams.ItemId` : PASS
+- `Hermes.ActionParams.Quantity` : PASS
 - `Hermes.Actions.Dispatcher.Route` : PASS
 - `Hermes.Inventory.AddRemove` : PASS
+- `Hermes.Inventory.AddSaturates` : PASS
 - `Hermes.Protocol.FrameAccumulator.Parse` : PASS
 - `Hermes.Protocol.FrameCodec.Encode` : PASS
 - `Hermes.Protocol.Messages.Build` : PASS
-- `EXIT CODE: 0` (5/5 PASS)
+- `Hermes.RateLimiter.TokenBucket` : PASS
+- `Hermes.Settings.CommandLineOverride` : PASS
+- `Hermes.Util.PushBounded` : PASS
+- `EXIT CODE: 0` (12/12 PASS)
