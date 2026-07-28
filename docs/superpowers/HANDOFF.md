@@ -8,7 +8,7 @@
 
 ## 지금 상태
 
-**Phase 1 완료. Phase 2(Task 4~8) 전체 완료.**
+**Phase 1(Task 1~3), Phase 2(Task 4~8), Task 18 완료.**
 
 | Phase | 범위 | 상태 |
 |---|---|---|
@@ -17,22 +17,24 @@
 | 2 — 입력 강건성 | Task 4~8 | ✅ **완료** (Task 4~8 전원 완료) |
 | 3 — 프로토콜 v2 코드 | Task 9~13b | ⛔ **보류** (서버 v2 준비 후) |
 | 4 — TLS | Task 14~16 | ⛔ **보류** (동상) |
-| 5 — 문서·검증 | Task 18~19 | ⬜ 대기 |
+| 5 — 문서·검증 | Task 18~19 | 🔶 **Task 18 완료**, Task 19는 v2 서버 후 통합 검증 |
 
-**이번 세션 목표(Phase 1~2, Task 1~8)를 모두 달성했습니다.** Phase 3부터는 클라이언트가 v1 서버와 통신 불가가 되므로 서버 재구축과 일정을 맞춰야 합니다.
+**현재 비-v2 서버 상태에서 진행 가능한 모든 클라이언트 작업(Phase 1, Phase 2, Task 18)이 완성되었습니다.**
 
 ## ✅ 재개 지점 — 깨끗한 상태
 
 **작업 트리에 미커밋 코드 변경이 없다.** 빌드·테스트 12종 모두 통과 상태이다.
 
 **다음 할 일:**
-- 서버 v2 준비 완료 전까지 Phase 3~4는 보류.
-- **Task 18(README·HTML 문서 갱신)**을 먼저 진행하는 것을 추천 (프로토콜 호환성과 무관하며, Phase 1~2에서 반영된 설정화 및 안전 장치를 문서화).
+- 백엔드 v2 서버 재구축이 완료되면 Phase 3(Task 9~13b) 및 Phase 4(Task 14~16) 진행.
+- 서버 준비 전까지 현 브랜치 `feat/settings-globalization-protocol-v2`의 준비 완료 상태 유지.
 
 ## 문서 위치
 
 | 문서 | 경로 |
 |---|---|
+| 플러그인 가이드 문서 | `README.md` |
+| 기술 사양 HTML 문서 | `HermesAgentNPC_Documentation.html` |
 | 설계 스펙 | `docs/superpowers/specs/2026-07-28-hermes-settings-globalization-design.md` |
 | 구현 계획서 | `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md` |
 | 프로토콜 v2 계약 | `ue5-socket-protocol.md` |
@@ -40,6 +42,8 @@
 ## 커밋 히스토리
 
 ```
+1643ab9  docs: README·HTML 문서를 설정 기반 및 안전 검증 사양으로 갱신 (Task 18 ✅)
+728a185  docs: Task 8 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록 갱신
 b15b8a0  feat: identified 이전 보류 발화에 상한 추가            (Task 8 ✅)
 30087c1  feat: 인바운드·아웃바운드 큐 상한 및 틱 처리 예산        (Task 7 ✅)
 da0cd40  feat: 액션 레이트 리밋 도입 및 타이머 핸들 회수          (Task 6 ✅)
@@ -80,15 +84,6 @@ Hermes.Settings.CommandLineOverride     ← Task 1
 Hermes.Util.PushBounded                 ← Task 8
 ```
 
-### 테스트 결과 확인 방법
-
-```powershell
-& "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Work\HermesAgentNPC\HermesAgentNPC.uproject" -ExecCmds="Automation RunTests Hermes; Quit" -unattended -nopause -nullrhi | Out-Null
-$r = Get-Content "C:\Work\HermesAgentNPC\Saved\Logs\HermesAgentNPC.log" -Encoding utf8 | Select-String "Test Completed. Result="
-Write-Output "총 $($r.Count)건"
-$r | ForEach-Object { ($_ -split "Result=|Path=")[1,2] -join " " }
-```
-
 ## 주요 명령
 
 ```powershell
@@ -98,12 +93,3 @@ $r | ForEach-Object { ($_ -split "Result=|Path=")[1,2] -join " " }
 # 전체 테스트
 & "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Work\HermesAgentNPC\HermesAgentNPC.uproject" -ExecCmds="Automation RunTests Hermes; Quit" -unattended -nopause -nullrhi
 ```
-
-## 결정 기록 (되돌리지 말 것)
-
-- **v1 호환 모드 없음** — 호환 경로는 곧 인증 없이 동작하는 경로다.
-- **`identified`는 재접속 시에도 자격 증명을 항상 싣는다** — 그래야 "`session_token` 없음"이 v1 서버 신호로 성립한다.
-- **TLS 실패 시 평문 폴백 없음**, Shipping에서 `bUseTLS=False` 무시.
-- **`MaxBodySize`(1 MiB)는 설정화하지 않는다** — 프로토콜 불변식.
-- **세션 토큰 난독화는 보안이 아니다** — 키가 바이너리에 있다. 기기 소유자로부터 보호하지 않으며 문서에 명시한다.
-- **`action_result`는 접수, `action_event`는 완료** — `move_to`가 15초를 넘길 수 있고 서버는 맵 크기를 모른다.
