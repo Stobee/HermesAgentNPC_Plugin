@@ -269,7 +269,7 @@
             border: 1px solid var(--border-color);
             border-radius: 10px;
             padding: 16px 20px;
-            overflow-x. auto;
+            overflow-x: auto;
             font-family: 'Fira Code', monospace;
             font-size: 13px;
             color: #e2e8f0;
@@ -420,6 +420,7 @@
                 <li><a href="#tcp-framing">TCP 프레이밍 규약</a></li>
                 <li><a href="#message-types">JSON 메시지 타입</a></li>
                 <li><a href="#action-handlers">화이트리스트 액션</a></li>
+                <li><a href="#safety-bounds">안전 검증 & 리소스 방어</a></li>
             </ul>
         </nav>
 
@@ -450,10 +451,11 @@
                 <span class="badge">Unreal Engine 5.8 Plugin</span>
                 <span class="badge cyan">Standalone Module</span>
                 <span class="badge emerald">Content Included</span>
+                <span class="badge emerald">12/12 Tests PASS</span>
             </div>
             <h1 class="hero-title">Hermes Agent NPC UE5 Plugin Specification</h1>
             <p class="hero-desc">
-                언리얼 엔진 5.8 C++ 모듈과 완제품 블루프린트 에셋이 독립 패키지(<code>Plugins/HermesAgentNPC/</code>)로 결합된 AI Agent NPC 전용 플러그인 사양서입니다. 어떤 UE5 프로젝트에나 복사하여 즉시 장착 가능한 구조로 설계되었습니다.
+                언리얼 엔진 5.8 C++ 모듈과 완제품 블루프린트 에셋이 독립 패키지(<code>Plugins/HermesAgentNPC/</code>)로 결합된 AI Agent NPC 전용 플러그인 사양서입니다. 프로젝트 설정(<code>UHermesSettings</code>)을 통한 호스트/포트 제어 및 강력한 파라미터 안전 검증 기능을 내장하고 있습니다.
             </p>
         </header>
 
@@ -467,16 +469,17 @@
                 <div class="card">
                     <div class="card-title">💡 구현 목적</div>
                     <div class="card-body">
-                        외부 Hermes AI 백엔드 서버(<code>192.168.0.111:8770</code>)와 통신하여 플레이어와의 자유형 대화 및 4종의 화이트리스트 인게임 액션 지시(이동, 추적, 인벤토리, 아이템 주고받기)를 구동하는 완전 독립형 플러그인을 제공합니다.
+                        외부 Hermes AI 백엔드 서버(설정 기반 호스트/포트)와 통신하여 플레이어와의 자유형 대화 및 4종의 화이트리스트 인게임 액션 지시(이동, 추적, 인벤토리, 아이템 주고받기)를 비동기로 구동하는 완전 독립형 플러그인을 제공합니다.
                     </div>
                 </div>
                 <div class="card">
                     <div class="card-title">🛡️ 핵심 경쟁력</div>
                     <div class="card-body">
                         <ul class="highlight-list">
-                            <li>독립형 <code>Plugins/HermesAgentNPC/</code> 패키지로 다른 UE5 프로젝트에 1초 만에 이식 가능</li>
+                            <li>독립형 <code>Plugins/HermesAgentNPC/</code> 패키지로 다른 UE5 프로젝트에 즉시 이식 가능</li>
+                            <li>에디터 Project Settings 및 <code>Config/DefaultGame.ini</code>를 통한 서버 주소 외부 전역 설정화</li>
                             <li>완제품 블루프린트(<code>BP_HermesNPC</code>, <code>WBP_HermesDialogue</code>) 내장 (CanContainContent: true)</li>
-                            <li>메인 스레드 락 없는 FRunnable 백그라운드 소켓 워커 (지수 백오프 자동 재연결)</li>
+                            <li>파라미터 하드 바운드, 토큰 버킷 레이트 리미터, 큐 상한 제어로 악성 피어 방어</li>
                             <li>SaveGame 기반 영구 Player UUID 유지 및 15초 액션 타임아웃 디스패처</li>
                         </ul>
                     </div>
@@ -498,12 +501,13 @@
     ├── HermesAgentNPC.uplugin              <-- 플러그인 정의 매니페스트 ("CanContainContent": true)
     ├── Source/
     │   └── HermesAgentNPC/                 <-- C++ 시스템 전체 (18개 소스 및 헤더)
-    │       ├── Actions/                    <-- 디스패처 및 액션 핸들러 4종
-    │       ├── Connection/                 <-- 연결 서브시스템 & SaveGame
-    │       ├── Inventory/                  <-- 인벤토리 컴포넌트 & 아이템
+    │       ├── Actions/                    <-- 디스패처, 액션 핸들러 4종, 파라미터 검증, 레이트 리밋
+    │       ├── Connection/                 <-- 연결 서브시스템, SaveGame, 보류 발화 상한
+    │       ├── Inventory/                  <-- 인벤토리 컴포넌트 & 오버플로 포화 처리
     │       ├── NPC/                        <-- NPC 캐릭터 & AIController
     │       ├── Protocol/                   <-- 프레이밍 코덱 & 메시지 JSON
-    │       ├── Transport/                  <-- FRunnable 소켓 워커
+    │       ├── Settings/                   <-- UDeveloperSettings 설정 클래스 (UHermesSettings)
+    │       ├── Transport/                  <-- FRunnable 백그라운드 소켓 워커 & DNS 해석
     │       ├── UI/                         <-- UMG 대화 위젯 C++
     │       └── HermesAgentNPC.Build.cs
     └── Content/                            <-- 플러그인 내장 완제품 블루프린트
@@ -523,19 +527,19 @@
                 <div class="card">
                     <div class="card-title">1. Transport Layer</div>
                     <div class="card-body">
-                        <code>FHermesFrameCodec</code>, <code>FFrameAccumulator</code>, <code>FHermesSocketWorker</code>로 구성되며 4바이트 길이 프리픽스 파싱 및 <code>TQueue</code> 백그라운드 송수신을 담당합니다.
+                        <code>FHermesFrameCodec</code>, <code>FFrameAccumulator</code>, <code>FHermesSocketWorker</code>로 구성되며 4바이트 길이 프리픽스 파싱, <code>GetAddressInfo</code> 기반 DNS 해석 및 <code>TQueue</code> 백그라운드 송수신을 담당합니다.
                     </div>
                 </div>
                 <div class="card">
                     <div class="card-title">2. Connection Layer</div>
                     <div class="card-body">
-                        <code>UHermesConnectionSubsystem</code>이 <code>UGameInstanceSubsystem</code>으로 동작하여 연결 수명주기, SaveGame UUID 영구 저장, <code>identify</code> 핸드셰이크를 처리합니다.
+                        <code>UHermesConnectionSubsystem</code>이 <code>UGameInstanceSubsystem</code>으로 동작하여 연결 수명주기, SaveGame UUID 영구 저장, <code>identify</code> 핸드셰이크 및 보류 발화 상한(<code>PushBounded</code>)을 처리합니다.
                     </div>
                 </div>
                 <div class="card">
                     <div class="card-title">3. Dispatch & Gameplay Layer</div>
                     <div class="card-body">
-                        <code>UHermesActionDispatcher</code>가 액션 요청을 검증하고 4종의 <code>IHermesActionHandler</code> (MoveTo, Follow, Inventory, Transfer) 및 UMG 대화 위젯으로 라우팅합니다.
+                        <code>UHermesActionDispatcher</code>가 액션 파라미터를 하드 바운드로 검증하고, 토큰 버킷 레이트 리미터를 거쳐 4종의 <code>IHermesActionHandler</code> (MoveTo, Follow, Inventory, Transfer) 및 UMG 대화 위젯으로 라우팅합니다.
                     </div>
                 </div>
             </div>
@@ -655,10 +659,57 @@
             </div>
         </section>
 
-        <!-- 7. 타 프로젝트 적용 가이드 -->
-        <section id="plugin-integration" class="doc-section">
+        <!-- 7. 안전 검증 & 리소스 방어 -->
+        <section id="safety-bounds" class="doc-section">
             <div class="section-header">
                 <div class="section-icon">07</div>
+                <h2 class="section-title">안전 검증 및 리소스 방어 (Safety Bounds)</h2>
+            </div>
+            <p class="card-body" style="margin-bottom: 16px;">
+                서버로부터 수신된 악성 또는 비정상적인 액션 요청으로 인해 게임 로직이나 메모리가 오염되지 않도록 하드 바운드 검증 및 자원 제어가 이루어집니다.
+            </p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>검증 항목</th>
+                        <th>하드 바운드 범위</th>
+                        <th>위반 시 처리 및 회신 <code>error</code></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>move_to</code> 좌표 유한성</td>
+                        <td><code>abs(v) <= 1e7 cm</code> (MaxWorldCoordinate)</td>
+                        <td>게임 로직 비실행, <code>ok: false</code> (<code>coordinate out of range</code>)</td>
+                    </tr>
+                    <tr>
+                        <td><code>item_transfer.quantity</code></td>
+                        <td>정수 범위 <code>1 <= q <= 999999</code></td>
+                        <td>게임 로직 비실행, <code>ok: false</code> (<code>quantity out of range</code>)</td>
+                    </tr>
+                    <tr>
+                        <td><code>item_transfer.item_id</code></td>
+                        <td>비어있지 않음 및 <code>length <= 64</code></td>
+                        <td>게임 로직 비실행, <code>ok: false</code> (<code>invalid item_id</code>)</td>
+                    </tr>
+                    <tr>
+                        <td>액션 처리 속도 제어</td>
+                        <td>토큰 버킷 레이트 리미터 (초당 최대 20회)</td>
+                        <td>초과 액션 거부, <code>ok: false</code> (<code>rate limited</code>)</td>
+                    </tr>
+                    <tr>
+                        <td>보류 발화 수 상한</td>
+                        <td><code>PushBounded</code> (MaxPendingChats=100)</td>
+                        <td>미승인 세션에서 오버플로 시 가장 오래된 발화 자동 드랍</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- 8. 타 프로젝트 적용 가이드 -->
+        <section id="plugin-integration" class="doc-section">
+            <div class="section-header">
+                <div class="section-icon">08</div>
                 <h2 class="section-title">타 프로젝트 연동 (드래그 앤 드롭 가이드)</h2>
             </div>
             <div class="card" style="margin-bottom: 20px;">
@@ -669,12 +720,13 @@
             </div>
 
             <div class="card" style="margin-bottom: 20px;">
-                <div class="card-title">⚙️ 2. .uproject 활성화 확인</div>
+                <div class="card-title">⚙️ 2. .uproject 활성화 및 서버 주소 설정</div>
                 <div class="card-body">
-                    대상 프로젝트의 <code>.uproject</code> 파일에 아래와 같이 플러그인이 활성화되어 있는지 확인합니다.
+                    대상 프로젝트의 <code>.uproject</code> 파일에 아래와 같이 플러그인을 활성화합니다.
                     <pre><code>"Plugins": [
     { "Name": "HermesAgentNPC", "Enabled": true }
 ]</code></pre>
+                    에디터의 <strong>Project Settings > Plugins > Hermes Agent NPC</strong> 또는 프로젝트의 <code>Config/DefaultGame.ini</code>에서 서버 호스트명과 포트를 설정합니다.
                 </div>
             </div>
 
@@ -690,10 +742,10 @@
             </div>
         </section>
 
-        <!-- 8. 빌드 & 자동화 테스트 -->
+        <!-- 9. 빌드 & 자동화 테스트 -->
         <section id="build-test" class="doc-section">
             <div class="section-header">
-                <div class="section-icon">08</div>
+                <div class="section-icon">09</div>
                 <h2 class="section-title">빌드 & 자동화 테스트 실행 커맨드</h2>
             </div>
             
@@ -703,26 +755,26 @@
             </div>
 
             <div class="card">
-                <div class="card-title">🧪 2. UE Automation Test 실행 (5/5 PASS)</div>
-                <p class="card-body">플러그인 모듈 상태에서 전체 단위 테스트 5종을 무인 모드로 검증합니다.</p>
+                <div class="card-title">🧪 2. UE Automation Test 실행 (12/12 PASS)</div>
+                <p class="card-body">플러그인 모듈 상태에서 전체 단위 테스트 12종을 무인 모드로 검증합니다.</p>
                 <pre><code>"C:/Program Files/Epic Games/UE_5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe" "C:/Work/HermesAgentNPC/HermesAgentNPC.uproject" -ExecCmds="Automation RunTests Hermes; Quit" -unattended -nopause -nullrhi</code></pre>
             </div>
         </section>
 
-        <!-- 9. 통합 검증 체크리스트 -->
+        <!-- 10. 통합 검증 체크리스트 -->
         <section id="checklist" class="doc-section">
             <div class="section-header">
-                <div class="section-icon">09</div>
+                <div class="section-icon">10</div>
                 <h2 class="section-title">통합 검증 체크리스트</h2>
             </div>
             <div class="card">
                 <ul class="highlight-list">
                     <li><code>Plugins/HermesAgentNPC/HermesAgentNPC.uplugin</code> 파일의 <code>"CanContainContent": true</code> 설정 확인</li>
                     <li>플러그인 내장 블루프린트 <code>BP_HermesNPC</code> 및 <code>WBP_HermesDialogue</code> 정상 로드 확인</li>
-                    <li>서버 <code>192.168.0.111:8770</code> 연결 시 <code>identify</code> 및 <code>identified</code> 핸드셰이크 수신 확인</li>
+                    <li><code>UHermesSettings</code> 전역 설정에서 지정한 서버 주소로 <code>GetAddressInfo</code> DNS 접속 및 핸드셰이크 확인</li>
                     <li>SaveGame(<code>HermesPlayer.sav</code>) 영구 Player UUID 유지 확인</li>
-                    <li><code>move_to</code>, <code>follow_player</code>, <code>inventory_manage</code>, <code>item_transfer</code> 명령 시 15초 내 <code>action_result</code> 회신 확인</li>
-                    <li>자동화 단독 테스트 `Hermes.*` 5종 전체 통과 확인 (EXIT CODE: 0)</li>
+                    <li><code>move_to</code>, <code>follow_player</code>, <code>inventory_manage</code>, <code>item_transfer</code> 파라미터 유효성 검증 및 15초 내 <code>action_result</code> 회신 확인</li>
+                    <li>자동화 커스텀 테스트 `Hermes.*` 12종 전체 통과 확인 (EXIT CODE: 0)</li>
                 </ul>
             </div>
         </section>
