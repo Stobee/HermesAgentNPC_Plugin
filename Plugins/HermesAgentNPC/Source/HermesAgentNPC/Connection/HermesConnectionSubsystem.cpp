@@ -116,8 +116,11 @@ bool UHermesConnectionSubsystem::Tick(float DeltaTime)
 	}
 	bWasConnected = bNow;
 
+	// 한 틱이 무한정 길어지지 않게 예산을 둔다. 남은 프레임은 다음 틱에서
+	// 처리되고, 유입이 예산을 계속 초과하면 워커의 큐 상한이 연결을 끊는다.
+	int32 Budget = GetDefault<UHermesSettings>()->MaxInboundFramesPerTick;
 	FString Json;
-	while (Worker->DequeueInbound(Json))
+	while (Budget-- > 0 && Worker->DequeueInbound(Json))
 	{
 		TSharedPtr<FJsonObject> Obj;
 		if (HermesJson::Parse(Json, Obj)) HandleFrame(Obj);

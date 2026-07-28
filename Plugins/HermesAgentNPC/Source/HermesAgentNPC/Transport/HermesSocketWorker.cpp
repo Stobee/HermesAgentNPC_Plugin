@@ -30,8 +30,31 @@ void FHermesSocketWorker::Start()
 	Thread = FRunnableThread::Create(this, TEXT("HermesSocketWorker"));
 }
 
-void FHermesSocketWorker::EnqueueOutbound(const FString& Json) { Outbound.Enqueue(Json); }
-bool FHermesSocketWorker::DequeueInbound(FString& OutJson) { return Inbound.Dequeue(OutJson); }
+void FHermesSocketWorker::EnqueueOutbound(const FString& Json)
+{
+	// 아웃바운드 적체는 피어의 악의가 아니라 연결 단절의 결과다. 끊어봐야
+	// 나아지지 않으므로 연결은 유지하고 새 프레임만 버린다.
+	// Outbound 는 SPSC 큐라 producer(게임 스레드)가 Dequeue 할 수 없어
+	// "가장 오래된 것 버리기"는 성립하지 않는다.
+	if (OutboundCount.GetValue() >= Config.MaxOutboundQueueSize)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Hermes] outbound queue full (%d), dropping frame"),
+			Config.MaxOutboundQueueSize);
+		return;
+	}
+	Outbound.Enqueue(Json);
+	OutboundCount.Increment();
+}
+
+bool FHermesSocketWorker::DequeueInbound(FString& OutJson)
+{
+	if (Inbound.Dequeue(OutJson))
+	{
+		InboundCount.Decrement();
+		return true;
+	}
+	return false;
+}
 void FHermesSocketWorker::RequestStop() { bStopRequested = true; }
 void FHermesSocketWorker::Stop() { bStopRequested = true; }
 
@@ -111,6 +134,7 @@ bool FHermesSocketWorker::SendAllPending()
 	FString Json;
 	while (Outbound.Dequeue(Json))
 	{
+		OutboundCount.Decrement();
 		TArray<uint8> Bytes;
 		if (!FHermesFrameCodec::Encode(Json, Bytes))
 		{
@@ -158,7 +182,18 @@ bool FHermesSocketWorker::ReceiveAvailable()
 		FString Json;
 		while (Accumulator.TryPop(Json))
 		{
+			// 정상 서버라면 게임 스레드가 매 틱 비우므로 이 선에 닿지 않는다.
+			// 도달했다는 것은 피어가 소비 속도를 무시하고 밀어넣고 있다는 뜻이다.
+			// 프레이밍 위반과 같은 경로로 연결을 끊고 백오프 재연결에 맡긴다.
+			if (InboundCount.GetValue() >= Config.MaxInboundQueueSize)
+			{
+				UE_LOG(LogTemp, Warning,
+					TEXT("[Hermes] inbound queue overflow (%d), closing connection"),
+					Config.MaxInboundQueueSize);
+				return false;
+			}
 			Inbound.Enqueue(Json);
+			InboundCount.Increment();
 		}
 	}
 	return true;

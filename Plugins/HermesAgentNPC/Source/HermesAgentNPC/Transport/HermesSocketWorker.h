@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "HAL/Runnable.h"
 #include "HAL/ThreadSafeBool.h"
+#include "HAL/ThreadSafeCounter.h"
 #include "Containers/Queue.h"
 #include "Protocol/HermesFrameCodec.h"
 #include "Transport/HermesWorkerConfig.h"
@@ -46,6 +47,10 @@ private:
 
 	TQueue<FString, EQueueMode::Spsc> Outbound;
 	TQueue<FString, EQueueMode::Spsc> Inbound;
+
+	// TQueue 는 크기 조회를 제공하지 않으므로 카운터를 따로 둔다.
+	FThreadSafeCounter InboundCount;
+	FThreadSafeCounter OutboundCount;
 
 	FThreadSafeBool bStopRequested = false;
 	FThreadSafeBool bConnected = false;
