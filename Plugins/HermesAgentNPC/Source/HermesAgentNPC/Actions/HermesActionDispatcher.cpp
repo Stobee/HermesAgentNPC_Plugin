@@ -4,6 +4,7 @@
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "Settings/HermesSettings.h"
+#include "HAL/PlatformTime.h"
 
 void UHermesActionDispatcher::RegisterHandler(TScriptInterface<IHermesActionHandler> Handler)
 {
@@ -16,6 +17,22 @@ void UHermesActionDispatcher::RegisterHandler(TScriptInterface<IHermesActionHand
 void UHermesActionDispatcher::Dispatch(const FHermesActionPayload& Payload,
 	TFunction<void(const FString&)> OnResult)
 {
+	const UHermesSettings* Settings = GetDefault<UHermesSettings>();
+
+	if (!bRateLimiterConfigured)
+	{
+		RateLimiter.Configure(Settings->MaxActionsPerSecond);
+		bRateLimiterConfigured = true;
+	}
+
+	// 정상 서버라면 이 선에 닿지 않는다. 도달했다는 것은 폭주이거나
+	// 프롬프트 인젝션으로 액션이 남발되고 있다는 신호다.
+	if (!RateLimiter.TryConsume(FPlatformTime::Seconds()))
+	{
+		OnResult(HermesJson::MakeActionResult(Payload.Id, false, nullptr, TEXT("rate limited")));
+		return;
+	}
+
 	IHermesActionHandler* Chosen = nullptr;
 	for (const TScriptInterface<IHermesActionHandler>& H : Handlers)
 	{
@@ -35,16 +52,29 @@ void UHermesActionDispatcher::Dispatch(const FHermesActionPayload& Payload,
 
 	// 핸들러 응답과 타임아웃 중 하나만 회신하도록 가드
 	TSharedRef<bool> bDone = MakeShared<bool>(false);
+	TSharedRef<FTimerHandle> Th = MakeShared<FTimerHandle>();
+	TWeakObjectPtr<UHermesActionDispatcher> WeakThis(this);
 	const FString Id = Payload.Id;
 
 	FHermesActionResultDelegate OnDone;
-	OnDone.BindLambda([bDone, Id, OnResult](bool bOk, TSharedPtr<FJsonObject> Result, FString Error)
+	OnDone.BindLambda([bDone, Th, WeakThis, Id, OnResult](bool bOk, TSharedPtr<FJsonObject> Result, FString Error)
 	{
 		if (*bDone)
 		{
 			return;
 		}
 		*bDone = true;
+
+		// 즉시 완료되는 핸들러가 대부분이다. 타이머를 회수하지 않으면
+		// 액션마다 만료까지 살아남아 자원이 누적된다.
+		if (UHermesActionDispatcher* Self = WeakThis.Get())
+		{
+			if (UWorld* W = Self->GetWorld())
+			{
+				W->GetTimerManager().ClearTimer(*Th);
+			}
+		}
+
 		OnResult(HermesJson::MakeActionResult(Id, bOk, Result, Error));
 	});
 
@@ -53,9 +83,7 @@ void UHermesActionDispatcher::Dispatch(const FHermesActionPayload& Payload,
 	// 액션 응답 타임아웃 폴백 (World 가 있을 때만; 즉시성 핸들러엔 bDone 가드로 무해)
 	if (UWorld* World = GetWorld())
 	{
-		const float TimeoutSeconds = GetDefault<UHermesSettings>()->ActionTimeoutSeconds;
-		FTimerHandle Th;
-		World->GetTimerManager().SetTimer(Th, [bDone, Id, OnResult]()
+		World->GetTimerManager().SetTimer(*Th, [bDone, Id, OnResult]()
 		{
 			if (*bDone)
 			{
@@ -63,6 +91,6 @@ void UHermesActionDispatcher::Dispatch(const FHermesActionPayload& Payload,
 			}
 			*bDone = true;
 			OnResult(HermesJson::MakeActionResult(Id, false, nullptr, TEXT("timeout")));
-		}, TimeoutSeconds, false);
+		}, Settings->ActionTimeoutSeconds, false);
 	}
 }

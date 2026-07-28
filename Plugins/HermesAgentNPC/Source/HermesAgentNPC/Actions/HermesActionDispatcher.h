@@ -3,12 +3,14 @@
 #include "UObject/Object.h"
 #include "Actions/HermesActionTypes.h"
 #include "Actions/HermesActionHandler.h"
+#include "Actions/HermesRateLimiter.h"
 #include "HermesActionDispatcher.generated.h"
 
 /**
  * 등록된 핸들러 중 command 를 처리할 수 있는 첫 핸들러로 라우팅한다.
  * 화이트리스트에 없는 command 는 즉시 거부(unsupported command)하고,
- * 15초 안에 결과가 없으면 timeout 으로 회신한다.
+ * 설정된 타임아웃 안에 결과가 없으면 timeout 으로 회신한다.
+ * 초당 처리량은 토큰 버킷으로 제한한다.
  */
 UCLASS()
 class UHermesActionDispatcher : public UObject
@@ -24,4 +26,7 @@ public:
 private:
 	UPROPERTY()
 	TArray<TScriptInterface<IHermesActionHandler>> Handlers;
+
+	FHermesRateLimiter RateLimiter;
+	bool bRateLimiterConfigured = false;
 };
