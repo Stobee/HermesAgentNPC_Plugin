@@ -102,6 +102,7 @@
 | 5.6 스트리밍 | 11 | |
 | 5.7 연결 유지·사망 판정 | 12 | `RequestReconnect`는 10에서 선행 추가 |
 | 5.8 대화 타임아웃·상관 | 13 | |
+| §4.5/§4.10 action_event (프로토콜 개정분) | 13b | move_to 두 단계 응답 |
 | 6.1 전송 추상화 | 14 | 순수 리팩터링 |
 | 6.2 SSL 컨텍스트 | 16 | `CreateContext` |
 | 6.3 연결 수립 절차 | 16 | `Connect` |
@@ -1988,14 +1989,111 @@ PendingChats 는 게임 스레드 전용 TArray 라 이 동작이 가능하다.
 
 ```cpp
 	/**
-	 * 서버가 발급한 세션 자격 증명. player_id 만으로는 세션에 접근할 수 없게 한다.
-	 * 평문으로 저장되며 기기 소유자로부터는 보호되지 않는다 — 의도된 한계다.
-	 * 클라이언트에 심은 비밀은 그 기기에서 지킬 수 없고, 숨기려는 시도는
-	 * obscurity 에 불과하다. 막는 대상은 "player_id 를 알아낸 제3자"다.
+	 * 서버가 발급한 세션 자격 증명을 난독화해 보관한다.
+	 *
+	 * FAES 로 감싸지만 키가 바이너리 안에 있으므로 이것은 암호화가 아니라
+	 * 난독화다. 기기 소유자로부터는 보호되지 않으며 그럴 방법도 없다.
+	 * 막는 것은 "세이브 파일을 그대로 복사해 남에게 넘기는" 수준까지다.
+	 * 진짜 대책은 서버측 단기 토큰·세션 바인딩이며 설계 문서 10.2 에 있다.
+	 *
+	 * 평문 접근은 GetSessionToken()/SetSessionToken() 으로만 한다.
 	 */
 	UPROPERTY()
-	FString SessionToken;
+	TArray<uint8> ObfuscatedSessionToken;
 ```
+
+`HermesSaveGame.h`의 `UPROPERTY` 아래에 접근자를 선언한다.
+
+```cpp
+	/** 난독화를 풀어 평문 토큰을 돌려준다. 없으면 빈 문자열. */
+	FString GetSessionToken() const;
+
+	/** 평문 토큰을 난독화해 보관한다. 빈 문자열이면 저장분을 비운다. */
+	void SetSessionToken(const FString& PlainToken);
+```
+
+`HermesSaveGame.cpp` 를 신규 작성한다.
+
+```cpp
+#include "HermesSaveGame.h"
+#include "Misc/AES.h"
+
+namespace
+{
+	/**
+	 * 난독화 키. 바이너리 안에 있으므로 비밀이 아니다 — 이 값이 노출되는 것은
+	 * 설계상 전제이고 위협 모델에 변화를 주지 않는다.
+	 * FAES::AESBlockSize 배수 길이여야 한다.
+	 */
+	const ANSICHAR* ObfuscationKey = "HermesAgentNPCLocalObfuscationKey";
+
+	void MakeKey(FAES::FAESKey& OutKey)
+	{
+		FMemory::Memzero(OutKey.Key, FAES::FAESKey::KeySize);
+		const int32 Len = FMath::Min<int32>(
+			FCStringAnsi::Strlen(ObfuscationKey), FAES::FAESKey::KeySize);
+		FMemory::Memcpy(OutKey.Key, ObfuscationKey, Len);
+	}
+}
+
+FString UHermesSaveGame::GetSessionToken() const
+{
+	if (ObfuscatedSessionToken.Num() == 0)
+	{
+		return FString();
+	}
+
+	TArray<uint8> Buffer = ObfuscatedSessionToken;
+	FAES::FAESKey Key;
+	MakeKey(Key);
+	FAES::DecryptData(Buffer.GetData(), Buffer.Num(), Key);
+
+	// 앞 4바이트에 원본 길이를 담아 블록 패딩을 걷어낸다.
+	if (Buffer.Num() < 4)
+	{
+		return FString();
+	}
+	const int32 PlainLen =
+		(int32)Buffer[0] | ((int32)Buffer[1] << 8) | ((int32)Buffer[2] << 16) | ((int32)Buffer[3] << 24);
+	if (PlainLen < 0 || PlainLen > Buffer.Num() - 4)
+	{
+		// 손상되었거나 다른 키로 쓰인 데이터. 새 신원을 발급받게 둔다.
+		return FString();
+	}
+
+	FUTF8ToTCHAR Conv(reinterpret_cast<const ANSICHAR*>(Buffer.GetData() + 4), PlainLen);
+	return FString(FStringView(Conv.Get(), Conv.Length()));
+}
+
+void UHermesSaveGame::SetSessionToken(const FString& PlainToken)
+{
+	ObfuscatedSessionToken.Reset();
+	if (PlainToken.IsEmpty())
+	{
+		return;
+	}
+
+	FTCHARToUTF8 Utf8(*PlainToken);
+	const int32 PlainLen = Utf8.Length();
+
+	// [4바이트 길이][UTF-8 바디][블록 크기 패딩]
+	const int32 Unpadded = 4 + PlainLen;
+	const int32 Padded = ((Unpadded + FAES::AESBlockSize - 1) / FAES::AESBlockSize) * FAES::AESBlockSize;
+
+	ObfuscatedSessionToken.SetNumZeroed(Padded);
+	ObfuscatedSessionToken[0] = (uint8)(PlainLen & 0xFF);
+	ObfuscatedSessionToken[1] = (uint8)((PlainLen >> 8) & 0xFF);
+	ObfuscatedSessionToken[2] = (uint8)((PlainLen >> 16) & 0xFF);
+	ObfuscatedSessionToken[3] = (uint8)((PlainLen >> 24) & 0xFF);
+	FMemory::Memcpy(ObfuscatedSessionToken.GetData() + 4, Utf8.Get(), PlainLen);
+
+	FAES::FAESKey Key;
+	MakeKey(Key);
+	FAES::EncryptData(ObfuscatedSessionToken.GetData(), ObfuscatedSessionToken.Num(), Key);
+}
+```
+
+> **이것이 보안이 아님을 코드와 문서 양쪽에 남긴다.** 키가 바이너리에 있으므로 기기 소유자는 언제든 복호화할 수 있다. 이 조치의 유일한 효과는 세이브 파일을 통째로 복사해 남에게 넘기거나 텍스트 에디터로 토큰을 긁어가는 경로를 막는 것이다. Task 18의 README 보안 모델 표에 이 한계를 명시한다.
 
 - [ ] **Step 2: 메시지 헤더 갱신**
 
@@ -2313,7 +2411,15 @@ void UHermesConnectionSubsystem::LoadCredentials()
 	if (UHermesSaveGame* SG = Cast<UHermesSaveGame>(UGameplayStatics::LoadGameFromSlot(SaveSlot, 0)))
 	{
 		PlayerId     = SG->PlayerId;
-		SessionToken = SG->SessionToken;
+		SessionToken = SG->GetSessionToken();   // 난독화 해제
+
+		// 토큰만 손상되었다면 반쪽 자격 증명으로 접속을 시도하지 않는다.
+		// MakeIdentify 가 둘 다 있어야 실어 보내므로 자연히 재발급 경로가 된다.
+		if (PlayerId.IsEmpty() || SessionToken.IsEmpty())
+		{
+			PlayerId.Reset();
+			SessionToken.Reset();
+		}
 	}
 }
 
@@ -2328,8 +2434,8 @@ void UHermesConnectionSubsystem::SaveCredentials()
 		UE_LOG(LogTemp, Warning, TEXT("[Hermes] failed to create save game object"));
 		return;
 	}
-	SG->PlayerId     = PlayerId;
-	SG->SessionToken = SessionToken;
+	SG->PlayerId = PlayerId;
+	SG->SetSessionToken(SessionToken);   // 난독화해 보관
 
 	if (!UGameplayStatics::SaveGameToSlot(SG, SaveSlot, 0))
 	{
@@ -2575,23 +2681,45 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FOnChatDelta, const FString& /*Text*/, cons
 ```cpp
 void UHermesDialogueWidget::HandleChatDelta(const FString& Text, const FString& Id)
 {
+	// 누적만 하고 위젯은 건드리지 않는다. 한 틱에 델타가 여러 개 들어오면
+	// SetText 를 그 횟수만큼 부르게 되는데, 마지막 한 번만 화면에 의미가 있고
+	// 나머지는 Slate 텍스트 레이아웃을 헛되이 무효화한다.
+	// 실제 갱신은 NativeTick 에서 틱당 1회만 수행한다.
 	StreamingText += Text;
-	if (DialogueText)
-	{
-		DialogueText->SetText(FText::FromString(StreamingText));
-	}
+	bStreamingDirty = true;
 }
 
 void UHermesDialogueWidget::HandleChatResponse(const FString& Text, const FString& Id)
 {
 	// 델타를 놓치거나 중복 처리했더라도 여기서 정본으로 교체되어 자기 교정된다.
 	StreamingText = Text;
-	if (DialogueText)
+	bStreamingDirty = true;
+}
+
+void UHermesDialogueWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	if (bStreamingDirty && DialogueText)
 	{
-		DialogueText->SetText(FText::FromString(Text));
+		DialogueText->SetText(FText::FromString(StreamingText));
+		bStreamingDirty = false;
 	}
 }
 ```
+
+헤더에 추가할 것:
+
+```cpp
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+```
+
+```cpp
+	/** 이번 틱에 표시를 갱신해야 하는지. 틱당 SetText 1회로 묶기 위한 플래그. */
+	bool bStreamingDirty = false;
+```
+
+> **왜 틱당 1회로 묶는가.** 워커는 이미 `TQueue` 로 프레임을 넘기고 게임 스레드가 `Tick()` 에서 예산(기본 64)만큼 소비한다 — 프레임마다 `AsyncTask(GameThread)` 를 부르는 구조가 아니므로 스레드 왕복 비용은 없다. 남는 비용은 순전히 **위젯 갱신 횟수**다. 델타 64개가 한 틱에 들어오면 `SetText` 가 64번 불리고 그때마다 Slate 가 텍스트 레이아웃을 다시 계산한다. 누적은 문자열 연산이라 싸고, 화면 갱신만 마지막에 한 번 하면 된다.
 
 > `Id` 인자는 이 태스크에서 아직 쓰지 않는다. Task 13에서 상관 규칙을 넣을 때 사용한다.
 
@@ -3381,11 +3509,9 @@ void UHermesDialogueWidget::HandleChatDelta(const FString& Text, const FString& 
 		return;
 	}
 
+	// 갱신은 NativeTick 이 틱당 1회만 수행한다 (Task 11).
 	StreamingText += Text;
-	if (DialogueText)
-	{
-		DialogueText->SetText(FText::FromString(StreamingText));
-	}
+	bStreamingDirty = true;
 }
 
 void UHermesDialogueWidget::HandleChatResponse(const FString& Text, const FString& Id)
@@ -3398,10 +3524,7 @@ void UHermesDialogueWidget::HandleChatResponse(const FString& Text, const FStrin
 
 	// 델타를 놓치거나 중복 처리했더라도 여기서 정본으로 교체되어 자기 교정된다.
 	StreamingText = Text;
-	if (DialogueText)
-	{
-		DialogueText->SetText(FText::FromString(Text));
-	}
+	bStreamingDirty = true;
 }
 
 void UHermesDialogueWidget::HandleChatFailed(const FString& Id, const FString& Reason)
@@ -3411,11 +3534,8 @@ void UHermesDialogueWidget::HandleChatFailed(const FString& Id, const FString& R
 		return;
 	}
 
-	StreamingText.Reset();
-	if (DialogueText)
-	{
-		DialogueText->SetText(FText::FromString(TEXT("응답을 받지 못했습니다.")));
-	}
+	StreamingText = TEXT("응답을 받지 못했습니다.");
+	bStreamingDirty = true;
 }
 ```
 
@@ -3447,6 +3567,281 @@ git commit -m "feat: 대화 응답 타임아웃과 발화 id 상관"
 - 연결이 끊기면 진행 중 발화를 모두 실패 처리하고 목록을 비운다
 - 위젯은 가장 최근 발화의 id 와 일치하는 델타·응답만 반영한다.
   늦게 도착한 이전 응답이 현재 화면을 덮어쓰던 문제가 사라진다
+```
+
+---
+
+## Task 13b: `action_event` — 장기 실행 액션의 비동기 완료 통지
+
+**Files:**
+- Modify: `Plugins/HermesAgentNPC/Source/HermesAgentNPC/Protocol/HermesMessages.h` / `.cpp`
+- Modify: `Plugins/HermesAgentNPC/Source/HermesAgentNPC/Protocol/HermesMessages.spec.cpp`
+- Modify: `Plugins/HermesAgentNPC/Source/HermesAgentNPC/Actions/MoveToActionHandler.h` / `.cpp`
+- Modify: `Plugins/HermesAgentNPC/Source/HermesAgentNPC/Connection/HermesConnectionSubsystem.h` / `.cpp`
+
+**Interfaces:**
+- Consumes: `HermesJson::Serialize` (기존), `UHermesConnectionSubsystem::SendJson` (기존)
+- Produces:
+  - `HermesMsg::ActionEvent` — `TEXT("action_event")`
+  - `FString HermesJson::MakeActionEvent(const FString& Id, bool bCompleted, const TSharedPtr<FJsonObject>& Result, const FString& Error)`
+  - `void UHermesConnectionSubsystem::SendActionEvent(const FString& Id, bool bCompleted, const TSharedPtr<FJsonObject>& Result, const FString& Error)`
+
+**왜 이 태스크가 필요한가:** `MoveToActionHandler.cpp:42-45`가 길찾기 요청 성공 시점에 `arrived: true`를 회신한다. **도착한 적이 없는데 도착했다고 서버에 알린다.** LLM은 이 거짓을 근거로 "언덕 위에 도착했어요"라고 말하는데 캐릭터는 아직 출발도 안 했을 수 있다. 프로토콜 §4.5/§4.10이 이를 접수(`action_result`)와 완료(`action_event`)로 분리했으므로 클라이언트가 따라가야 한다.
+
+완료를 기다렸다 `action_result`를 보내는 대안은 쓸 수 없다 — 15초 예산을 넘기는 것이 정확히 이 액션이고, 서버는 맵 크기와 이동 속도를 알 수 없어 타임아웃을 늘려 해결할 수도 없다.
+
+- [ ] **Step 1: 메시지 빌더 추가**
+
+`Protocol/HermesMessages.h`의 `HermesMsg` 에 추가한다.
+
+```cpp
+	inline const FString ActionEvent   = TEXT("action_event");
+```
+
+`HermesJson` 에 추가한다.
+
+```cpp
+	/**
+	 * 이미 접수(action_result)한 액션의 완료/실패를 뒤늦게 알린다.
+	 * bCompleted=false 면 event="failed" 로 나가며 Error 가 실린다.
+	 */
+	FString MakeActionEvent(const FString& Id, bool bCompleted,
+	                        const TSharedPtr<FJsonObject>& Result, const FString& Error);
+```
+
+`Protocol/HermesMessages.cpp` 에 정의를 추가한다.
+
+```cpp
+FString HermesJson::MakeActionEvent(const FString& Id, bool bCompleted,
+	const TSharedPtr<FJsonObject>& Result, const FString& Error)
+{
+	TSharedRef<FJsonObject> O = MakeShared<FJsonObject>();
+	O->SetStringField(TEXT("type"), HermesMsg::ActionEvent);
+	O->SetStringField(TEXT("id"), Id);
+	O->SetStringField(TEXT("event"), bCompleted ? TEXT("completed") : TEXT("failed"));
+	if (Result.IsValid())
+	{
+		O->SetObjectField(TEXT("result"), Result);
+	}
+	if (!Error.IsEmpty())
+	{
+		O->SetStringField(TEXT("error"), Error);
+	}
+	return Serialize(O);
+}
+```
+
+- [ ] **Step 2: 실패하는 테스트 작성**
+
+`Protocol/HermesMessages.spec.cpp` 끝에 추가한다.
+
+```cpp
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHermesMessagesActionEventTest,
+	"Hermes.Protocol.Messages.ActionEvent",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHermesMessagesActionEventTest::RunTest(const FString& Parameters)
+{
+	// 완료: event=completed, result 포함, error 없음
+	{
+		TSharedPtr<FJsonObject> Res = MakeShared<FJsonObject>();
+		Res->SetBoolField(TEXT("arrived"), true);
+
+		TSharedPtr<FJsonObject> Obj;
+		TestTrue(TEXT("parses"), HermesJson::Parse(
+			HermesJson::MakeActionEvent(TEXT("act-1"), true, Res, FString()), Obj));
+
+		FString Type, Id, Event;
+		Obj->TryGetStringField(TEXT("type"), Type);
+		Obj->TryGetStringField(TEXT("id"), Id);
+		Obj->TryGetStringField(TEXT("event"), Event);
+		TestEqual(TEXT("type"), Type, TEXT("action_event"));
+		TestEqual(TEXT("id"), Id, TEXT("act-1"));
+		TestEqual(TEXT("event"), Event, TEXT("completed"));
+		TestTrue(TEXT("has result"), Obj->HasField(TEXT("result")));
+		TestFalse(TEXT("no error"), Obj->HasField(TEXT("error")));
+	}
+
+	// 실패: event=failed, error 포함, result 없음
+	{
+		TSharedPtr<FJsonObject> Obj;
+		TestTrue(TEXT("parses"), HermesJson::Parse(
+			HermesJson::MakeActionEvent(TEXT("act-2"), false, nullptr, TEXT("path blocked")), Obj));
+
+		FString Event, Error;
+		Obj->TryGetStringField(TEXT("event"), Event);
+		Obj->TryGetStringField(TEXT("error"), Error);
+		TestEqual(TEXT("event"), Event, TEXT("failed"));
+		TestEqual(TEXT("error"), Error, TEXT("path blocked"));
+		TestFalse(TEXT("no result"), Obj->HasField(TEXT("result")));
+	}
+
+	return true;
+}
+```
+
+- [ ] **Step 3: 테스트가 실패하는지 확인**
+
+```powershell
+& "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" HermesAgentNPCEditor Win64 Development -Project="C:\Work\HermesAgentNPC\HermesAgentNPC.uproject" -WaitMutex
+```
+
+Expected: 링크 실패 → Step 1의 정의를 넣었다면 통과. 정의를 아직 안 넣었다면 `MakeActionEvent` 미정의.
+
+- [ ] **Step 4: 구독 시스템에 송신 진입점 추가**
+
+`Connection/HermesConnectionSubsystem.h` 의 `public:` 에 추가한다.
+
+```cpp
+	/** 장기 실행 액션의 완료/실패를 서버에 알린다. 액션 핸들러가 호출한다. */
+	void SendActionEvent(const FString& Id, bool bCompleted,
+	                     const TSharedPtr<class FJsonObject>& Result, const FString& Error);
+```
+
+`.cpp` 에 정의를 추가한다.
+
+```cpp
+void UHermesConnectionSubsystem::SendActionEvent(const FString& Id, bool bCompleted,
+	const TSharedPtr<FJsonObject>& Result, const FString& Error)
+{
+	SendJson(HermesJson::MakeActionEvent(Id, bCompleted, Result, Error));
+}
+```
+
+- [ ] **Step 5: `MoveToActionHandler` 를 두 단계 응답으로 교체**
+
+헤더에 이동 완료를 받을 상태를 추가한다. `Actions/MoveToActionHandler.h` 의 `private:` 에:
+
+```cpp
+	/** 진행 중인 이동의 action_request id. 완료 통지에 그대로 쓴다. */
+	FString PendingMoveId;
+
+	UFUNCTION()
+	void OnMoveCompleted(FAIRequestID RequestID, EPathFollowingResult::Type Result);
+```
+
+`Actions/MoveToActionHandler.cpp` 의 즉시 회신 부분을 교체한다. 기존의 아래 두 줄을 지운다.
+
+```cpp
+	// 최소 동작: 요청 성공을 도착으로 간주해 즉시 회신 (확장 시 OnMoveCompleted 델리게이트로 대체)
+	TSharedPtr<FJsonObject> Res = MakeShared<FJsonObject>();
+	Res->SetBoolField(TEXT("arrived"), true);
+	OnDone.ExecuteIfBound(true, Res, FString());
+```
+
+대신 접수 응답을 보내고 완료 델리게이트를 건다.
+
+```cpp
+	// action_result 는 "접수했고 시작했다"까지만 말한다. 도착 여부는
+	// 나중에 action_event 로 알린다 (프로토콜 §4.5, §4.10).
+	// 완료를 기다렸다 회신하면 15초 예산을 넘겨 서버 타임아웃이 난다.
+	PendingMoveId = Payload.Id;
+
+	AI->ReceiveMoveCompleted.AddUniqueDynamic(this, &UMoveToActionHandler::OnMoveCompleted);
+
+	TSharedPtr<FJsonObject> Res = MakeShared<FJsonObject>();
+	Res->SetBoolField(TEXT("started"), true);
+
+	// 남은 경로 길이 / 이동 속도로 대략의 도착 시간을 낸다. 없으면 필드를 뺀다.
+	if (const UPathFollowingComponent* PFC = AI->GetPathFollowingComponent())
+	{
+		const float Speed = Npc->GetCharacterMovement() ? Npc->GetCharacterMovement()->GetMaxSpeed() : 0.f;
+		if (Speed > KINDA_SMALL_NUMBER)
+		{
+			const float Dist = FVector::Dist(Npc->GetActorLocation(), Dest);
+			Res->SetNumberField(TEXT("eta_seconds"), Dist / Speed);
+		}
+	}
+
+	OnDone.ExecuteIfBound(true, Res, FString());
+```
+
+완료 콜백을 추가한다.
+
+```cpp
+void UMoveToActionHandler::OnMoveCompleted(FAIRequestID RequestID, EPathFollowingResult::Type Result)
+{
+	if (PendingMoveId.IsEmpty())
+	{
+		return;
+	}
+
+	// 프로토콜상 id 당 event 는 최대 1회다. 먼저 비워 재진입을 막는다.
+	const FString Id = PendingMoveId;
+	PendingMoveId.Reset();
+
+	if (AAIController* AI = Npc.IsValid() ? Cast<AAIController>(Npc->GetController()) : nullptr)
+	{
+		AI->ReceiveMoveCompleted.RemoveDynamic(this, &UMoveToActionHandler::OnMoveCompleted);
+	}
+
+	UHermesConnectionSubsystem* Conn = nullptr;
+	if (Npc.IsValid())
+	{
+		if (UGameInstance* GI = Npc->GetGameInstance())
+		{
+			Conn = GI->GetSubsystem<UHermesConnectionSubsystem>();
+		}
+	}
+	if (!Conn)
+	{
+		return; // 연결이 사라졌다. 프로토콜상 event 유실은 허용된다.
+	}
+
+	if (Result == EPathFollowingResult::Success)
+	{
+		TSharedPtr<FJsonObject> Res = MakeShared<FJsonObject>();
+		Res->SetBoolField(TEXT("arrived"), true);
+		Conn->SendActionEvent(Id, true, Res, FString());
+	}
+	else
+	{
+		Conn->SendActionEvent(Id, false, nullptr, TEXT("path blocked"));
+	}
+}
+```
+
+필요한 include 를 `MoveToActionHandler.cpp` 상단에 추가한다.
+
+```cpp
+#include "Connection/HermesConnectionSubsystem.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Engine/GameInstance.h"
+```
+
+> **새 이동이 이전 이동을 덮어쓰는 경우.** `PendingMoveId` 가 비어있지 않은 상태로 새 `move_to` 가 오면 이전 이동은 `EPathFollowingResult::Aborted` 로 콜백이 오고, 그 시점에 이전 id 로 `failed` 이벤트가 나간다. 그 후 새 id 가 `PendingMoveId` 에 들어간다. 순서가 뒤집히지 않도록 **접수 응답보다 델리게이트 등록을 먼저** 하지 않는다 — 위 코드의 순서를 지킨다.
+
+- [ ] **Step 6: 빌드 및 테스트**
+
+```powershell
+& "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" HermesAgentNPCEditor Win64 Development -Project="C:\Work\HermesAgentNPC\HermesAgentNPC.uproject" -WaitMutex
+& "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Work\HermesAgentNPC\HermesAgentNPC.uproject" -ExecCmds="Automation RunTests Hermes; Quit" -unattended -nopause -nullrhi
+```
+
+Expected: 빌드 성공, 테스트 18종 통과 (Task 13까지 17 + ActionEvent 1).
+
+- [ ] **Step 7: 커밋**
+
+```powershell
+git add Plugins/HermesAgentNPC/Source/HermesAgentNPC
+git commit -m "feat: action_event 로 move_to 완료를 비동기 통지"
+```
+
+커밋 본문에 포함할 내용:
+
+```
+길찾기 요청 성공 시점에 arrived:true 를 보내고 있었다. 도착한 적이
+없는데 도착했다고 서버에 알리는 것이라, LLM 이 그 거짓을 근거로
+"도착했어요" 라고 말하는 동안 캐릭터는 출발도 안 했을 수 있다.
+
+완료를 기다렸다 action_result 를 보내는 대안은 쓸 수 없다. 15초 예산을
+넘기는 것이 정확히 이 액션이고, 서버는 맵 크기와 이동 속도를 알 수
+없어 타임아웃을 늘려 해결할 수도 없다.
+
+- action_result 는 { started, eta_seconds } 로 접수만 알린다
+- ReceiveMoveCompleted 델리게이트로 실제 완료를 받아 action_event 를 보낸다
+- id 당 event 는 최대 1회. 콜백 진입 시 PendingMoveId 를 먼저 비운다
+- 연결이 끊겼으면 event 는 유실된다. 프로토콜이 허용하는 동작이다
 ```
 
 ---
@@ -4031,7 +4426,36 @@ git commit -m "feat: TLS 검증 정책 결정 로직 및 테스트"
 - Consumes: `IHermesTransport` (Task 14), `HermesTls::*` (Task 15), `FHermesTlsConfig` (Task 2)
 - Produces: `class FHermesTlsTransport : public IHermesTransport`
 
-**구현 시 확인 필요:** `ISslManager` / `ISslCertificateManager`의 정확한 메서드 이름과 시그니처는 설치된 UE 5.8 소스(`Engine/Source/Runtime/Online/SSL`)를 열어 확인한다. 아래 코드는 필요한 기능과 호출 순서를 규정하며, API 이름이 다르면 그에 맞춰 조정하되 **검증 정책과 다운그레이드 금지 규칙은 바꾸지 않는다.**
+**API 확인 완료 (UE 5.8).** `Engine/Source/Runtime/Online/SSL/Public/Interfaces/` 를 확인한 결과 아래 시그니처가 실재한다.
+
+```cpp
+// ISslManager.h
+virtual bool     InitializeSsl() = 0;                                  // 참조 계수
+virtual void     ShutdownSsl() = 0;
+virtual SSL_CTX* CreateSslContext(const FSslContextCreateOptions&) = 0;
+virtual void     DestroySslContext(SSL_CTX*) = 0;
+
+struct FSslContextCreateOptions {
+    ESslTlsProtocol MinimumProtocol = ESslTlsProtocol::Minimum;  // TLSv1_2 지정 가능
+    ESslTlsProtocol MaximumProtocol = ESslTlsProtocol::Maximum;
+    bool bAllowCompression = true;
+    bool bAddCertificates  = true;   // 플랫폼 루트 저장소 자동 주입
+};
+
+// ISslCertificateManager.h
+virtual void AddCertificatesToSslContext(SSL_CTX*) const = 0;
+virtual void SetPinnedPublicKeys(const FString& Domain, const FString& PinnedKeyDigests) = 0;
+//   PinnedKeyDigests: "Semicolon separated base64 encoded SHA256 digests of pinned public keys"
+//   Domain 이 '.' 로 시작하면 서브도메인 매칭
+virtual bool IsDomainPinned(const FString& Domain) = 0;
+virtual bool VerifySslCertificates(X509_STORE_CTX* Context, const FString& Domain) const = 0;
+```
+
+> **엔진이 SPKI 핀 고정을 내장하고 있다.** 핀 형식이 우리 설정(`TlsPinnedPublicKeyHashes`, base64 SHA-256)과 정확히 같은 단위라 `;` 로 join 해 넘기면 된다. `i2d_X509_PUBKEY` + `SHA256` + `FBase64::Encode` 를 손으로 짤 필요가 없고, 다이제스트 계산 실수 위험도 사라진다.
+
+`FSslModule::Get()` 은 `Ssl.h` 하나만 include 하면 매니저 둘 다 얻을 수 있다. 나머지는 OpenSSL 원시 호출(`SSL_new`, `SSL_do_handshake`, `SSL_read/write`)이며 이는 엔진이 감싸주지 않는다.
+
+**검증 정책과 다운그레이드 금지 규칙은 어떤 경우에도 바꾸지 않는다.**
 
 - [ ] **Step 1: `Build.cs`에 SSL 의존 추가**
 
@@ -4088,11 +4512,16 @@ private:
 	/** 논블로킹 핸드셰이크. bStop 신호와 타임아웃을 매 반복 확인한다. */
 	bool DoHandshake(float TimeoutSeconds);
 
-	/** 서버 인증서의 SPKI SHA-256 base64 가 핀 목록에 있는지 확인한다. */
-	bool VerifyPinnedKey(const TArray<FString>& Pins) const;
+	/**
+	 * 서버 공개키가 등록된 핀과 일치하는지 확인한다.
+	 * 다이제스트 계산과 비교는 엔진의 ISslCertificateManager 가 수행한다.
+	 */
+	bool VerifyPinnedKey(const FString& ServerName) const;
 
 	SSL_CTX* Ctx = nullptr;
 	SSL*     Ssl = nullptr;
+	/** InitializeSsl() 성공 여부. Close() 에서 짝을 맞춰 ShutdownSsl() 한다. */
+	bool     bSslInitialized = false;
 #endif
 
 	/** OpenSSL 이 소유하는 raw 소켓 디스크립터. -1 이면 없음. */
@@ -4111,15 +4540,12 @@ private:
 #include "HAL/PlatformTime.h"
 #include "HAL/PlatformProcess.h"
 #include "Misc/Paths.h"
-#include "Misc/Base64.h"   // 핀 해시 비교에 FBase64::Encode 를 쓴다
 
 #if WITH_SSL
-#include "Ssl.h"
+#include "Ssl.h"   // ISslManager, ISslCertificateManager, FSslModule
 THIRD_PARTY_INCLUDES_START
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
-#include <openssl/evp.h>
-#include <openssl/sha.h>
 THIRD_PARTY_INCLUDES_END
 #endif
 
@@ -4263,7 +4689,7 @@ bool FHermesTlsTransport::Connect(const FHermesWorkerConfig& Config, const FInte
 	if (HermesTls::ResolveVerifyMode(Config.Tls.PinnedPublicKeyHashes, Config.Tls.PrivateCaPath)
 		== HermesTls::EVerifyMode::PinnedKey)
 	{
-		if (!VerifyPinnedKey(Config.Tls.PinnedPublicKeyHashes))
+		if (!VerifyPinnedKey(ServerName))
 		{
 			UE_LOG(LogTemp, Error,
 				TEXT("[Hermes] TLS public key pin mismatch for '%s'. Refusing connection."),
@@ -4294,27 +4720,48 @@ bool FHermesTlsTransport::Connect(const FHermesWorkerConfig& Config, const FInte
 #if WITH_SSL
 bool FHermesTlsTransport::CreateContext(const FHermesTlsConfig& Tls, const FString& ServerName)
 {
-	Ctx = SSL_CTX_new(TLS_client_method());
+	ISslManager& Mgr = FSslModule::Get().GetSslManager();
+	if (!Mgr.InitializeSsl())
+	{
+		UE_LOG(LogTemp, Error, TEXT("[Hermes] failed to initialize SSL"));
+		return false;
+	}
+	bSslInitialized = true;
+
+	const HermesTls::EVerifyMode Mode =
+		HermesTls::ResolveVerifyMode(Tls.PinnedPublicKeyHashes, Tls.PrivateCaPath);
+
+	FSslContextCreateOptions Options;
+	Options.MinimumProtocol = ESslTlsProtocol::TLSv1_2;   // TLS 1.2 미만 비활성화
+	Options.bAllowCompression = false;                    // CRIME 류 회피
+	// 핀 모드에서는 시스템 루트를 신뢰 근거로 쓰지 않는다. 자체 서명 인증서가
+	// 정상 경로이기 때문이며, 신뢰는 아래에서 등록하는 SPKI 핀이 담당한다.
+	Options.bAddCertificates = (Mode != HermesTls::EVerifyMode::PinnedKey);
+
+	Ctx = Mgr.CreateSslContext(Options);
 	if (!Ctx)
 	{
 		return false;
 	}
 
-	// TLS 1.2 미만은 비활성화한다.
-	SSL_CTX_set_min_proto_version(Ctx, TLS1_2_VERSION);
-
-	const HermesTls::EVerifyMode Mode =
-		HermesTls::ResolveVerifyMode(Tls.PinnedPublicKeyHashes, Tls.PrivateCaPath);
+	ISslCertificateManager& Certs = FSslModule::Get().GetCertificateManager();
 
 	switch (Mode)
 	{
 	case HermesTls::EVerifyMode::PinnedKey:
-		// 체인 검증에 의존하지 않고 핸드셰이크 후 SPKI 핀으로 판단한다.
-		// 자체 서명 인증서를 쓰는 LAN 서버를 다루기 위함이다.
-		// 검증을 "끄는" 것이 아니라 "핀으로 대체"하는 것이며,
-		// 핀 불일치는 Connect() 에서 무조건 연결을 거부한다.
+	{
+		// 엔진이 SPKI 핀 고정을 내장하고 있다. 형식은 세미콜론으로 구분된
+		// base64 SHA-256 다이제스트로, 우리 설정 배열과 정확히 같은 단위다.
+		// 직접 i2d_X509_PUBKEY + SHA256 + base64 를 돌릴 필요가 없다.
+		const FString Joined = FString::Join(Tls.PinnedPublicKeyHashes, TEXT(";"));
+		Certs.SetPinnedPublicKeys(ServerName, Joined);
+
+		// 검증은 핸드셰이크 후 VerifyPinnedKey() 가 수행한다.
+		// SSL_VERIFY_NONE 은 검증을 "끄는" 것이 아니라 체인 검증을 핀으로
+		// "대체"하는 것이며, 핀 불일치는 Connect() 에서 무조건 연결을 거부한다.
 		SSL_CTX_set_verify(Ctx, SSL_VERIFY_NONE, nullptr);
 		break;
+	}
 
 	case HermesTls::EVerifyMode::PrivateCa:
 	{
@@ -4330,10 +4777,9 @@ bool FHermesTlsTransport::CreateContext(const FHermesTlsConfig& Tls, const FStri
 
 	case HermesTls::EVerifyMode::SystemCa:
 	default:
+		// Options.bAddCertificates 가 true 라 CreateSslContext 가 이미
+		// 플랫폼 루트 저장소를 주입했다. 별도 호출이 필요 없다.
 		SSL_CTX_set_verify(Ctx, SSL_VERIFY_PEER, nullptr);
-		// UE 의 인증서 관리자가 제공하는 루트 저장소를 컨텍스트에 주입한다.
-		// 정확한 API 이름은 Engine/Source/Runtime/Online/SSL 에서 확인한다.
-		FSslModule::Get().GetCertificateManager().AddCertificatesToSslContext(Ctx);
 		break;
 	}
 
@@ -4371,41 +4817,48 @@ bool FHermesTlsTransport::DoHandshake(float TimeoutSeconds)
 	}
 }
 
-bool FHermesTlsTransport::VerifyPinnedKey(const TArray<FString>& Pins) const
+bool FHermesTlsTransport::VerifyPinnedKey(const FString& ServerName) const
 {
-	X509* Cert = SSL_get_peer_certificate(Ssl);
-	if (!Cert)
+	// 엔진의 인증서 관리자가 SPKI 다이제스트 비교를 수행한다.
+	// CreateContext() 에서 SetPinnedPublicKeys(ServerName, ...) 로 등록해 두었다.
+	ISslCertificateManager& Certs = FSslModule::Get().GetCertificateManager();
+
+	if (!Certs.IsDomainPinned(ServerName))
+	{
+		// 등록에 실패했다면 검증할 근거가 없다. 통과시키지 않는다.
+		UE_LOG(LogTemp, Error,
+			TEXT("[Hermes] pins were configured but not registered for '%s'"), *ServerName);
+		return false;
+	}
+
+	X509_STORE_CTX* StoreCtx = X509_STORE_CTX_new();
+	if (!StoreCtx)
 	{
 		return false;
 	}
 
-	// SPKI(DER) 를 뽑아 SHA-256 후 base64. 인증서가 아니라 공개키에 핀을 걸어야
-	// 인증서 갱신 시 키쌍만 유지하면 클라이언트 재배포가 필요 없다.
-	uint8* Der = nullptr;
-	const int32 DerLen = i2d_X509_PUBKEY(X509_get_X509_PUBKEY(Cert), &Der);
-	if (DerLen <= 0 || !Der)
+	// 피어가 보낸 체인을 그대로 검증 컨텍스트에 얹는다.
+	STACK_OF(X509)* Chain = SSL_get_peer_cert_chain(Ssl);
+	X509* Leaf = SSL_get_peer_certificate(Ssl);
+	if (!Leaf)
 	{
-		X509_free(Cert);
+		X509_STORE_CTX_free(StoreCtx);
 		return false;
 	}
 
-	uint8 Digest[SHA256_DIGEST_LENGTH];
-	SHA256(Der, (size_t)DerLen, Digest);
-	OPENSSL_free(Der);
-	X509_free(Cert);
+	const bool bInit = X509_STORE_CTX_init(StoreCtx, nullptr, Leaf, Chain) == 1;
+	const bool bOk = bInit && Certs.VerifySslCertificates(StoreCtx, ServerName);
 
-	const FString Actual = FBase64::Encode(Digest, SHA256_DIGEST_LENGTH);
+	X509_free(Leaf);
+	X509_STORE_CTX_free(StoreCtx);
 
-	for (const FString& Pin : Pins)
+	if (!bOk)
 	{
-		if (Pin.TrimStartAndEnd().Equals(Actual, ESearchCase::CaseSensitive))
-		{
-			return true;
-		}
+		UE_LOG(LogTemp, Error,
+			TEXT("[Hermes] server public key does not match any configured pin for '%s'"),
+			*ServerName);
 	}
-
-	UE_LOG(LogTemp, Error, TEXT("[Hermes] server SPKI pin was %s, not in configured list"), *Actual);
-	return false;
+	return bOk;
 }
 #endif // WITH_SSL
 
@@ -4420,8 +4873,15 @@ void FHermesTlsTransport::Close()
 	}
 	if (Ctx)
 	{
-		SSL_CTX_free(Ctx);
+		// SSL_CTX_free 가 아니라 매니저에 돌려준다. 생성을 매니저가 했다.
+		FSslModule::Get().GetSslManager().DestroySslContext(Ctx);
 		Ctx = nullptr;
+	}
+	if (bSslInitialized)
+	{
+		// InitializeSsl 은 참조 계수라 짝을 맞춰야 한다.
+		FSslModule::Get().GetSslManager().ShutdownSsl();
+		bSslInitialized = false;
 	}
 #endif
 	if (NativeSocket >= 0)
@@ -4629,7 +5089,13 @@ DNS 동작이 평문 경로와 동일하게 유지된다.
 
 # Phase 5 — 문서와 통합 검증
 
-## Task 17: 프로토콜 문서 v2 개정
+## Task 17: 프로토콜 문서 v2 개정 — ✅ 완료 (앞당겨 실행)
+
+> **이 태스크는 이미 실행되었다.** 커밋 `7e8e53d`(v2 개정)와 `10d0279`(`action_event` 추가).
+>
+> 서버를 병행 재구축하는 상황이라 Phase 5까지 미룰 수 없었다. 이 문서는 코드에 의존하지 않는 순수 계약이고, 없으면 서버 작업 자체가 시작될 수 없다. 실제 결과물이 아래 Step 들보다 넓다 — `action_event`(§4.10), 서버 체크리스트(§7b), 스텁 서버 목록(§8), "What changed from v1" 표가 추가로 들어갔다.
+>
+> 아래 Step 들은 **기록용으로 남긴다.** 다시 실행하지 말 것.
 
 **Files:**
 - Modify: `ue5-socket-protocol.md` (프로젝트 루트)
@@ -5210,8 +5676,8 @@ Phase 4 완료 전까지 임시로 두었던 bUseTLS=False 를 해제하고 서�
 |---|---|---|---|
 | 1 — 설정 전역화 | 1~3 | 주소가 ini로 이동, DNS 지원 | 6 |
 | 2 — 입력 강건성 | 4~8 | 자원 고갈·크래시 경로 차단 | 12 |
-| 3 — 프로토콜 v2 | 9~13 | 서버 발급 신원, 스트리밍, liveness | 17 |
-| 4 — TLS | 14~16 | 경로상 공격자 차단 | 20 |
-| 5 — 문서·검증 | 17~19 | 계약 문서 확정, 통합 검증 | 20 |
+| 3 — 프로토콜 v2 | 9~13b | 서버 발급 신원, 스트리밍, liveness, action_event | 18 |
+| 4 — TLS | 14~16 | 경로상 공격자 차단 | 21 |
+| 5 — 문서·검증 | 18~19 | README·HTML 갱신, 통합 검증 | 21 |
 
 **Phase 1과 2는 프로토콜과 무관하므로 단독으로 머지 가능하다.** 서버 재구축이 지연되면 여기까지만 먼저 반영해도 된다.
