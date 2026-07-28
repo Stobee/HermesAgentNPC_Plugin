@@ -1,4 +1,5 @@
 #include "Connection/HermesConnectionSubsystem.h"
+#include "Connection/HermesUtil.h"
 #include "Transport/HermesSocketWorker.h"
 #include "Protocol/HermesMessages.h"
 #include "Actions/HermesActionDispatcher.h"
@@ -88,8 +89,20 @@ void UHermesConnectionSubsystem::SendChat(const FString& Text)
 {
 	const FString Id = FString::Printf(TEXT("c-%04d"), ++ChatCounter);
 	const FString Json = HermesJson::MakeChat(Id, Text);
-	if (bIdentified) SendJson(Json);
-	else PendingChats.Add(Json); // identified 후 flush
+
+	if (bIdentified)
+	{
+		SendJson(Json);
+		return;
+	}
+
+	// identified 를 영영 보내지 않는 피어에 붙으면 여기가 무한히 자란다.
+	const int32 Dropped = HermesUtil::PushBounded(
+		PendingChats, Json, GetDefault<UHermesSettings>()->MaxPendingChats);
+	if (Dropped > 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Hermes] pending chat overflow, dropped %d oldest"), Dropped);
+	}
 }
 
 void UHermesConnectionSubsystem::FlushPendingChats()
