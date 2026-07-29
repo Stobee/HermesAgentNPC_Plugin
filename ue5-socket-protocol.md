@@ -290,6 +290,49 @@ Durable conversation history is the server's business (it keys off `chat_id`),
 and the agent will see the abandoned utterance in that history. What must not
 happen is the **frame** being replayed.
 
+### 3.6 One turn at a time
+
+**A session processes exactly one chat turn at a time, in arrival order.**
+
+The client does not wait for a reply before sending again — the dialogue UI has
+no send-gating, so a player pressing enter three times produces `c-0001`,
+`c-0002`, `c-0003` back to back. This is **normal traffic, not abuse.**
+
+The server queues them and answers them one at a time:
+
+```
+--> chat {id:"c-0001"}      --> chat {id:"c-0002"}     (both already on the wire)
+
+<-- chat_delta {id:"c-0001", ...}   x N
+<-- chat_response {id:"c-0001"}     <- turn 1 closed
+<-- chat_delta {id:"c-0002", ...}   x N
+<-- chat_response {id:"c-0002"}     <- turn 2 closed
+```
+
+Requirements:
+
+- **Never interleave frames from two turns.** Every `chat_delta` between turn
+  N's start and its `chat_response` belongs to turn N. A delta for a different
+  `id` must not appear until the current turn has been closed by its
+  `chat_response`.
+- **Every accepted `chat` gets exactly one terminal frame** — a `chat_response`,
+  or an `error` carrying its `id` (§5). A turn that is silently dropped leaves
+  the client waiting out `ChatResponseTimeoutSeconds`.
+- **Bound the queue.** A player can outrun any inference speed. Cap the queued
+  turns per session and answer the overflow immediately with
+  `error { code: "rate_limited", id: "<the chat id>" }` rather than growing.
+- Order is arrival order. The queue is FIFO; do not reorder by length or cost.
+
+**Why serial and not concurrent.** The client renders one conversation view with
+one pending state. Two turns streaming at once produce two texts with nowhere to
+put the second, and the accumulated display would be an interleaving of both
+answers. Serial execution is what makes a single accumulation buffer correct —
+see §4.9.
+
+Actions are **not** part of this ordering. `action_request` may be pushed at any
+time, including in the middle of a turn (§4.5), and `action_event` may arrive
+long after the turn that caused it (§4.10). Only chat turns are serialized.
+
 ---
 
 ## 4. Message types
@@ -358,7 +401,7 @@ just validated:
 | `ok` | bool | yes | `true` on success. |
 | `player_id` | string | **yes, always** | Server-generated on issuance, echoed on reconnect. |
 | `session_token` | string | **yes, always** | Server-generated credential, echoed on reconnect. |
-| `chat_id` | string | yes | Conversation id for this player. |
+| `chat_id` | string | yes | Conversation id for this player. **Server-side bookkeeping — the client never sends it back.** Do not design a flow that expects it to return in a later frame; nothing in §4 carries it. It exists so your logs and storage can key the conversation, and so a server that migrates history has a handle to it. |
 
 > **`identified` must always carry both credentials, including on reconnect.**
 > This is deliberate and load-bearing: it is what makes "no `session_token` in
@@ -544,6 +587,12 @@ display with the final text. Consequences worth relying on:
 - Dropping or double-processing a delta still ends up correct.
 - You do not need to guarantee delta ordering or delivery.
 
+**A single accumulation buffer is sufficient, because turns are serial (§3.6).**
+All deltas between a turn's start and its `chat_response` share one `id`. A
+delta whose `id` differs from the turn in progress is a protocol violation — the
+client discards its buffer and starts a new one rather than merging the two,
+so an interleaving server produces truncated text, not a crash.
+
 > **Servers must batch deltas.** One frame per token is tens to hundreds of
 > frames per second, which pressures the client's per-tick frame budget
 > (`MaxInboundFramesPerTick`, default 64) and inbound queue cap
@@ -599,6 +648,11 @@ Failure after acceptance:
 - An `action_event` always follows an `action_result` with the same `id`.
   It never arrives first, and never without one.
 - **At most one `action_event` per `id`.** Servers should ignore duplicates.
+- **An `id` the server does not recognize is ignored, not an error.** This is
+  normal after a server restart: the client kept running, finished a long
+  `move_to`, and reported it to a process that no longer remembers requesting
+  it. Log it and drop it — do not reply with `error`, and do not synthesize a
+  tool observation for an action you cannot attribute.
 - The `id` may arrive long after the turn that requested it — potentially after
   several `chat` exchanges. Servers must not assume it belongs to the current
   turn.
@@ -797,8 +851,10 @@ observable outcome so the NPC can talk about it.
 3. Wait for `identified`. Persist the `player_id` and `session_token` it
    returns. If it has no `session_token`, you are talking to a v1 server —
    log loudly and disconnect.
-4. Send `chat` frames for player utterances. Render `chat_delta.text`
-   incrementally, then replace with `chat_response.text` when it arrives.
+4. Send `chat` frames for player utterances — you may send again without waiting
+   for the previous reply; the server answers in order (§3.6). Render
+   `chat_delta.text` incrementally, then replace with `chat_response.text` when
+   it arrives. Reset the accumulation buffer when a delta's `id` changes.
 5. Handle incoming `action_request`: validate parameters against your bounds,
    start the action, then reply `action_result` with the same `id` **within
    ~15 s**. Reply even on failure. For long-running actions this means
@@ -835,6 +891,10 @@ observable outcome so the NPC can talk about it.
 5. Reject `chat` before `identify` with `not_identified`.
 6. Stream replies as `chat_delta`, **batched to ~50 ms or a few tokens**, then
    close the turn with an authoritative `chat_response`.
+6a. Process one turn at a time per session, in arrival order, and never
+   interleave two turns' frames (§3.6). Queue what arrives mid-turn, bound that
+   queue, and answer the overflow with `rate_limited` carrying the `chat.id`.
+   Every accepted `chat` must end in a `chat_response` or an `error` with its `id`.
 6b. Treat `action_result` as acceptance, not completion. Feed a later
    `action_event` (§4.10) back to the agent as a tool observation. An accepted
    action that never produces an event has an **unknown** outcome — do not
@@ -882,6 +942,8 @@ server never produces. Small stubs make them reproducible:
 | Presents a certificate with a different key | Pin mismatch rejected |
 | Sends `session_taken_over`, then closes | Reconnect loop **stops**; no eviction war |
 | Sends `server_busy` carrying the outstanding `chat.id` | Turn fails immediately, not at the 60 s timeout |
+| Answers three rapid-fire `chat` frames in order, one turn at a time | Serial turns render correctly; no interleaved text (§3.6) |
+| Interleaves `chat_delta` from two different `id`s | Client discards the buffer on the id change instead of merging |
 | Drops the connection mid-turn, then answers the old `chat` on the next one | Client must not attribute a stale reply to the new utterance (§3.5) |
 
 ---
