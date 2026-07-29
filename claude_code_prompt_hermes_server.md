@@ -1,7 +1,8 @@
-# Claude Code 작업 프롬프트 (1/2 — Hermes 에이전트 서버 / Windows)
+# Claude Code 작업 프롬프트 — Hermes 에이전트 서버 (Windows)
 
 이 프롬프트는 **Windows의 Hermes 서버 프로젝트**에서 Claude Code로 작업할 때 사용하세요.
-UE5 클라이언트 쪽 작업은 별도 프롬프트(`claude_code_prompt_ue5_client.md`)로 진행합니다.
+UE5 플러그인 쪽 작업은 이 저장소에서 별도로 진행되므로, 서버 세션은 클라이언트 코드를
+볼 필요도, 건드릴 필요도 없습니다.
 
 > **서버 OS는 프로토콜과 무관합니다.** 계약은 TCP 위의 길이 프리픽스 프레이밍뿐이라 어느
 > 플랫폼에서 구현해도 동일하게 동작합니다. 이 프롬프트는 Windows 기준으로 쓰여 있고,
