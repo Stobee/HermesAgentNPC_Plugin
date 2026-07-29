@@ -1,6 +1,6 @@
 # Hermes UE5 클라이언트 — 작업 진행 기록
 
-> 마지막 업데이트: 2026-07-28 (Phase 1, 2 및 Task 18 문서화 완료)
+> 마지막 업데이트: 2026-07-29 (프로토콜 문서 동기화 및 테스트 기준선 재검증)
 > 브랜치: `feat/settings-globalization-protocol-v2`
 > 계획 문서: `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md`
 
@@ -16,7 +16,16 @@
 - [x] **Task 8** `identified` 이전 보류 발화 상한(`HermesUtil::PushBounded`, `MaxPendingChats`) 구현 (`Hermes.Util.PushBounded` PASS)
 - [x] **Task 18** `README.md` 및 `HermesAgentNPC_Documentation.html` 가이드/사양서 문서 설정 기반 및 안전 사양으로 최신화
 
-## 자동화 테스트 결과 (총 12종 전원 PASS)
+## 문서 동기화 (2026-07-29, 계획 외 후속 작업)
+
+- [x] `ue5-socket-protocol.md` 를 실제 `UHermesSettings` 기본값과 동기화 (`ad8e852`)
+  - §9 `Client-enforced limits` 신설 — 큐 상한·`MaxPendingChats`·재연결 백오프·라이브니스·TLS 키를 설정명/기본값/위반 시 동작으로 정리
+  - §0 에 DNS 호스트명 해석 및 IPv4 우선 선택 명시 (Task 3 반영)
+  - §4.7·§4.9·§6 의 숫자에 실제 설정 키 병기, 레이트 리밋이 큐잉 아닌 즉시 거부임을 명시
+  - TLS 키(Task 14~16)와 keepalive·chat 타임아웃 키(Task 12·13)가 **선언만 되어 있고 소비 코드가 없음**을 상태 주석으로 표기
+- [x] 문서 기본값 오류 2건 수정 — HTML `MaxPendingChats` 100→32, README `Initial Reconnect Delay` 1.0s→0.5s
+
+## 자동화 테스트 결과 (총 12종 전원 PASS, 2026-07-29 재실행 확인)
 
 - `Hermes.ActionParams.Coordinate` : PASS
 - `Hermes.ActionParams.ItemId` : PASS

@@ -3,12 +3,12 @@
 > 이 파일은 작업이 중단되었을 때 다음 세션이 이어받기 위한 기록이다.
 > **태스크를 완료할 때마다 갱신한다.**
 
-- 최종 갱신: 2026-07-28
+- 최종 갱신: 2026-07-29
 - 브랜치: `feat/settings-globalization-protocol-v2` (master에서 분기)
 
 ## 지금 상태
 
-**Phase 1(Task 1~3), Phase 2(Task 4~8), Task 18 완료.**
+**Phase 1(Task 1~3), Phase 2(Task 4~8), Task 18 완료. 프로토콜 문서 동기화 완료.**
 
 | Phase | 범위 | 상태 |
 |---|---|---|
@@ -23,11 +23,19 @@
 
 ## ✅ 재개 지점 — 깨끗한 상태
 
-**작업 트리에 미커밋 코드 변경이 없다.** 빌드·테스트 12종 모두 통과 상태이다.
+**작업 트리에 미커밋 코드 변경이 없다.** 2026-07-29 빌드(exit 0) 및 테스트 12종 전원 PASS를 재검증했다.
 
 **다음 할 일:**
 - 백엔드 v2 서버 재구축이 완료되면 Phase 3(Task 9~13b) 및 Phase 4(Task 14~16) 진행.
 - 서버 준비 전까지 현 브랜치 `feat/settings-globalization-protocol-v2`의 준비 완료 상태 유지.
+
+## ⚠️ v2 코드 작업 시 함께 고칠 문서 지점
+
+- `README.md:113` — `move_to` 결과가 `{ "arrived": true }`로 적혀 있다. 프로토콜 v2(§6)는
+  이를 무효 shape으로 규정하지만 **2단계 응답이 Task 13b라 현재 클라이언트 실제 동작은
+  README 쪽이 맞다.** 의도적으로 남겨둔 것이므로 Task 13b 완료 시 반드시 함께 고칠 것.
+- `ue5-socket-protocol.md` §9의 **구현 상태 주석 2개**(TLS 키 / keepalive·chat 타임아웃 키)는
+  해당 Task(12·13·14~16) 완료 시점에 제거해야 한다. 방치하면 문서가 거짓말을 한다.
 
 ## 문서 위치
 
@@ -42,6 +50,8 @@
 ## 커밋 히스토리
 
 ```
+ad8e852  docs: 프로토콜 문서를 구현된 설정 기본값과 동기화
+c24c41a  docs: Task 18 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록 갱신
 1643ab9  docs: README·HTML 문서를 설정 기반 및 안전 검증 사양으로 갱신 (Task 18 ✅)
 728a185  docs: Task 8 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록 갱신
 b15b8a0  feat: identified 이전 보류 발화에 상한 추가            (Task 8 ✅)
@@ -67,7 +77,7 @@ f6c1a6e  docs: 검토 결과를 구현 계획서에 반영
 
 ## 테스트 기준선
 
-현재 **12종 전부 통과**:
+**2026-07-29 재실행 확인: 12종 전부 통과 (exit code 0).**
 
 ```
 Hermes.ActionParams.Coordinate          ← Task 5
