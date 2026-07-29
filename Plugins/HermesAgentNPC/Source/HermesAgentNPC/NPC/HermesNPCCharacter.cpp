@@ -20,6 +20,14 @@ AHermesNPCCharacter::AHermesNPCCharacter()
 void AHermesNPCCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	if (bAutoRegisterAsActiveNpc)
+	{
+		BecomeActiveHermesNpc();
+	}
+}
+
+void AHermesNPCCharacter::BecomeActiveHermesNpc()
+{
 	if (UGameInstance* GI = GetGameInstance())
 	{
 		if (UHermesConnectionSubsystem* Conn = GI->GetSubsystem<UHermesConnectionSubsystem>())
@@ -27,6 +35,19 @@ void AHermesNPCCharacter::BeginPlay()
 			Conn->RegisterNpc(this);
 		}
 	}
+}
+
+void AHermesNPCCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// 파괴된 NPC 를 가리키는 핸들러가 남으면 액션이 죽은 액터로 향한다.
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UHermesConnectionSubsystem* Conn = GI->GetSubsystem<UHermesConnectionSubsystem>())
+		{
+			Conn->UnregisterNpc(this);
+		}
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void AHermesNPCCharacter::Interact()

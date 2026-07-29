@@ -102,6 +102,25 @@ YourGame.exe -HermesHost=10.0.0.5 -HermesPort=9000
 ```
 > **Shipping 빌드 보안:** Shipping 빌드에서는 커맨드라인 오버라이드 인자가 무시되어 최종 유저가 임의의 서버로 접속을 변경하는 것을 차단합니다.
 
+### 3. 대상 NPC 지정 (Active NPC)
+
+**이 플러그인은 NPC 한 개체만을 대상으로 합니다.** 프로토콜에 NPC 식별자가 없으므로, 하나의 연결은 언제나 단 하나의 NPC를 조종합니다(`ue5-socket-protocol.md`의 "Scope" 절).
+
+어느 액터를 에이전트가 조종할지는 프로젝트가 정합니다:
+
+| 방법 | 사용 시점 |
+| :--- | :--- |
+| `Auto Register As Active Npc` 체크 (기본값 `true`) | `BeginPlay`에서 자동으로 활성 NPC가 됩니다. 대화형 NPC가 하나뿐인 일반적인 경우. |
+| `BecomeActiveHermesNpc()` 호출 (블루프린트/C++) | 원하는 시점에 직접 지정합니다. 스폰되는 NPC, 챕터별 교체 등. |
+
+> **레벨에 `AHermesNPCCharacter`를 여러 개 배치한다면 하나만 남기고 `Auto Register As Active Npc`를 꺼야 합니다.** 여러 개가 자동 등록되면 마지막에 등록한 액터가 대상이 되고, 이전 액터는 교체 경고와 함께 배선이 해제됩니다:
+>
+> ```
+> [Hermes] 활성 NPC 교체: BP_Blacksmith_C_0 -> BP_Guard_C_1. 이 플러그인은 NPC 한 명만 대상으로 한다.
+> ```
+>
+> 활성 NPC가 파괴되면(`EndPlay`) 배선이 자동으로 해제되어, 죽은 액터로 액션이 향하지 않습니다.
+
 ---
 
 ## 📜 지원 액션 명령 스펙 (Action Command Catalog)

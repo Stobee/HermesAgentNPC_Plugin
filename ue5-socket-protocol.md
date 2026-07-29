@@ -21,6 +21,33 @@ Every client-side limit this document cites is a **configurable default**, not a
 protocol constant. §9 lists them with their setting names so a server
 implementer can see the exact knobs and their shipped values.
 
+## Scope: one connection, one NPC
+
+**This protocol addresses exactly one conversational NPC.** No frame carries an
+NPC identifier, and none will in v2 — the connection *is* the addressing.
+
+That means, concretely:
+
+- `chat` is the player talking **to that NPC**. `chat_response` is that NPC
+  answering. There is no "which NPC said this" field because there is only one.
+- `action_request` commands **that NPC**. The server never chooses a target; it
+  says `move_to` and the client's single registered NPC moves.
+- One `player_id` ↔ one `chat_id` ↔ one NPC ↔ one connection. The server keeps
+  one conversation per identity, not one per character.
+
+The UE5 side enforces this: the project designates a single Hermes NPC actor,
+and registering another one **replaces** it rather than adding a second target
+(see the plugin README). A server may therefore assume its actions always reach
+the same character for the life of a session.
+
+> **Multiple conversational NPCs are out of scope by design, not by oversight.**
+> The plugin's remit is one agent-driven character. A project that wants a town
+> full of them needs one connection per NPC — which this protocol supports only
+> in the sense that each connection would need its own identity and its own
+> client instance. Do not work around it by inventing an `npc_id` field: the
+> client ignores unknown fields (§2), so the action would silently go to the
+> wrong character instead of failing loudly.
+
 ## What changed from v1
 
 If you implemented against v1, these are breaking changes:
@@ -36,6 +63,7 @@ If you implemented against v1, these are breaking changes:
 | `move_to` result | `{ "arrived": true }` immediately — **a lie** | `{ "started": true }` then a later `{ "arrived": true }` event |
 | Keepalive | server may `ping` | both sides `ping`; receive-silence means death (§4.7) |
 | Version field | none | `protocol_version: 2` in `identify` (§4.1) |
+| Second connection, same identity | undefined | newest wins; the old one is evicted with `session_taken_over` (§3.4) |
 
 The framing layer (§1) is unchanged. The action catalog (§6) keeps the same four
 commands, but now documents the bounds the client enforces and each command's
@@ -206,6 +234,62 @@ The client persists `player_id` and `session_token` locally.
   `session_token`, the client logs an error and reconnects rather than
   proceeding. See "What changed from v1" above.
 
+### 3.4 Two connections, one identity — the newcomer wins
+
+A player reinstalls, copies a save, or launches the game twice. The server will
+see a second `identify` carrying credentials that are **already bound to a live
+connection**. This is not an error and must not be refused:
+
+**The newest valid connection takes the session. The older one is evicted.**
+
+```
+    |  (conn A is live, identified)          |
+    |                                        |<--- conn B: identify {player_id, session_token}
+    |  error {code:"session_taken_over"}     |
+    |<---------------------------------------|
+    |  <connection A closed by server>       |
+    |                                        |---> identified {...}  (to B)
+```
+
+Requirements:
+
+- The eviction notice is a normal `error` frame with code `session_taken_over`
+  (§5), **sent to the old connection before closing it**. Closing the socket
+  silently is not acceptable — the displaced client cannot distinguish that from
+  a network fault, and will reconnect and steal the session straight back.
+- The server sends the notice, then closes. It does not wait for a reply.
+- The credentials themselves are **not** invalidated. B is a legitimate holder
+  of the identity; A simply no longer owns the connection.
+- **An evicted client must not auto-reconnect.** `session_taken_over` is the one
+  disconnect reason that suspends the reconnect loop (§9) — the session is
+  someone else's now, and retrying produces an eviction war in which two game
+  instances kick each other forever. Reconnecting requires a deliberate act
+  (a new `identify` triggered by the game, e.g. the player re-entering the
+  conversation), not the backoff timer.
+- Conversation state belongs to the **identity**, not the connection. B resumes
+  the same `chat_id` and history that A had.
+
+### 3.5 What survives a disconnect
+
+**Nothing in flight is retried automatically — by either side.**
+
+| At the moment the connection drops | Outcome |
+|---|---|
+| A `chat` was sent, no `chat_response` yet | The turn is **abandoned**. The client does not resend it; the server discards the reply rather than delivering it on the next connection. |
+| An `action_request` was accepted, no `action_event` yet | Lost (§4.10). The server must treat the outcome as **unknown**. |
+| Utterances queued **before** `identified` ever arrived | These were never sent. They **are** flushed once `identified` arrives, subject to `MaxPendingChats` (§9). |
+
+The last row is the only thing that looks like a retry and is not: those frames
+never reached the wire. Once a `chat` has been written to the socket it is never
+written again, so a server that finishes generating a reply for a connection
+that has since dropped should **drop the reply**, not queue it. Delivering a
+stale answer to the next connection would attach it to whatever the player says
+next, which is worse than losing it.
+
+Durable conversation history is the server's business (it keys off `chat_id`),
+and the agent will see the abandoned utterance in that history. What must not
+happen is the **frame** being replayed.
+
 ---
 
 ## 4. Message types
@@ -234,7 +318,7 @@ Reconnect (credentials stored from a previous `identified`):
 
 | Field | Type | Req | Notes |
 |-------|------|-----|-------|
-| `protocol_version` | int | yes | Always `2`. Reject other values with `unknown_type`-style `error`. |
+| `protocol_version` | int | yes | Always `2`. Reject any other value with `error { code: "unsupported_version" }` and close (§5). |
 | `player_id` | string | no | Omit to request new credentials. |
 | `session_token` | string | no | **Required whenever `player_id` is present.** |
 | `player_name` | string | no | Display name; used in chat info. |
@@ -432,8 +516,9 @@ malformed action). The connection may or may not be closed depending on `code`
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `code` | string | Machine-readable error code (§5). |
-| `message` | string | Human-readable detail. |
+| `code` | string | Machine-readable error code — the full list and each code's connection/reaction contract is §5. |
+| `message` | string | Human-readable detail. For logs, not for NPC dialogue. |
+| `id` | string? | The `chat.id` or `action_request.id` this error belongs to, when it belongs to one. Including it lets the client fail that turn now instead of on timeout (§5). |
 
 ### 4.9 `chat_delta` — Server → Client
 
@@ -536,13 +621,42 @@ lie at accept time or blow the timeout.
 
 ## 5. Error codes
 
-| `code` | Meaning | Connection |
-|--------|---------|------------|
-| `not_identified` | A `chat`/action was sent before `identify`. | kept |
-| `unknown_type` | Unrecognized `type` value. | kept |
-| `bad_frame` | Malformed JSON or length over 1 MiB. | **closed** |
-| `unknown_command` | `action_result` / action referenced a non-whitelisted command. | kept |
-| `not_authorized` | `(player_id, session_token)` did not validate, or one was sent without the other. **Required in v2.** | **closed** |
+Every `error` frame carries a `code` from this table. The list is closed: a
+server must not invent codes, because the client branches on them. A condition
+with no code here is reported as `internal_error` with detail in `message`.
+
+| `code` | Meaning | Connection | Client reaction |
+|--------|---------|------------|-----------------|
+| `not_identified` | A `chat`/action was sent before `identify`. | kept | Re-sends `identify`. |
+| `unknown_type` | Unrecognized `type` value. | kept | Logs only. |
+| `bad_frame` | Malformed JSON or length over 1 MiB. | **closed** | Reconnects with backoff. |
+| `unknown_command` | `action_result` / action referenced a non-whitelisted command. | kept | Logs only. |
+| `not_authorized` | `(player_id, session_token)` did not validate, or one was sent without the other. **Required in v2.** | **closed** | Discards stored credentials, reconnects, and re-identifies **with none** — i.e. asks for a new identity. |
+| `unsupported_version` | `identify.protocol_version` is not `2`. | **closed** | Logs loudly and stops reconnecting. A version mismatch does not heal by retrying. |
+| `session_taken_over` | Another connection claimed this identity (§3.4). | **closed** | **Stops the reconnect loop.** Credentials stay stored. |
+| `rate_limited` | The server's own per-session limit was exceeded. Distinct from the client-side action limiter (§6), which never produces an `error` frame. | kept | Logs; does not resend. |
+| `server_busy` | The server is up but cannot take work (inference queue full, model loading). | kept | Logs; the pending turn fails. Retrying is the player's choice, not the client's. |
+| `internal_error` | Server-side failure while handling an otherwise valid frame. | kept | Logs; the pending turn fails. |
+
+**`kept` vs `closed` is a contract, not a hint.** The client keeps the socket
+open on `kept` codes and expects the session to remain usable. If the server
+closes anyway, the client sees an unexplained drop and reconnects — which is
+survivable but hides the real reason from the log, so pick the right code.
+
+**Which codes end a turn.** `rate_limited`, `server_busy`, and `internal_error`
+can arrive while a `chat` is outstanding. When they carry the `id` of that chat,
+the client fails that turn immediately instead of waiting out
+`ChatResponseTimeoutSeconds` (§9):
+
+```json
+{ "type": "error", "code": "server_busy", "id": "c-0007", "message": "inference queue full" }
+```
+
+| Field | Type | Req | Notes |
+|-------|------|-----|-------|
+| `code` | string | yes | From the table above. |
+| `message` | string | yes | Human-readable detail. Logged, never shown to the player as NPC dialogue. |
+| `id` | string | no | The `chat.id` or `action_request.id` this error belongs to, when it belongs to one. |
 
 ---
 
@@ -695,13 +809,17 @@ observable outcome so the NPC can talk about it.
 7. Reply to `ping` with `pong`. Send your own `ping` when idle, and treat
    prolonged receive-silence as a dead connection.
 8. On disconnect, reconnect and re-`identify` with the **stored credentials**
-   to resume the conversation. Actions accepted before the drop will never
-   produce their `action_event`.
+   to resume the conversation — **except** after `session_taken_over` or
+   `unsupported_version`, which stop the reconnect loop (§5). Never resend a
+   `chat` that was already on the wire, and expect no `action_event` for
+   actions accepted before the drop (§3.5).
 9. Always frame with the 4-byte big-endian length prefix; always parse off the
    length, never off packet boundaries.
 
 ## 7b. Minimal server checklist
 
+0. Model one conversation per identity, addressed to a single NPC. There is no
+   NPC id in any frame and you must not add one (see "Scope" above).
 1. Terminate TLS (directly or behind a reverse proxy). Publish your SPKI pin if
    the certificate is self-signed.
 2. Accept `identify`. If it carries no credentials, mint a `player_id` and a
@@ -709,6 +827,9 @@ observable outcome so the NPC can talk about it.
    and store the mapping durably.
 3. If it carries credentials, validate the pair. On mismatch — or if only one of
    the two is present — send `error { code: "not_authorized" }` and close.
+3b. If the pair is valid but that identity already has a live connection, evict
+   the old one: send it `error { code: "session_taken_over" }`, close it, then
+   admit the newcomer (§3.4). Never refuse the newcomer.
 4. Always answer with `identified` carrying **both** `player_id` and
    `session_token` (§4.2), plus `chat_id`.
 5. Reject `chat` before `identify` with `not_identified`.
@@ -721,8 +842,14 @@ observable outcome so the NPC can talk about it.
 7. Constrain LLM tool output with a JSON schema or grammar (§6) so only
    whitelisted commands and in-range parameters can be produced.
 8. Rate-limit per authenticated session and bound your inference queue depth.
-   The client's own limits protect the client, not you.
-9. Answer `ping` with `pong`, and reap connections that go silent.
+   The client's own limits protect the client, not you. Report refusals as
+   `rate_limited` / `server_busy` with the outstanding `chat.id` so the client
+   can fail that turn immediately (§5).
+9. Answer `ping` with `pong`, and reap connections that go silent. Do not rely
+   on the client noticing first (§9).
+10. When a connection drops mid-turn, **discard** the in-flight reply instead of
+   delivering it to the next connection (§3.5). Keep it in the conversation
+   history if you like; do not put it back on the wire.
 
 ---
 
@@ -753,6 +880,9 @@ server never produces. Small stubs make them reproducible:
 | Floods `action_request` | Rate limiter replies `rate limited`, framerate holds |
 | Accepts TCP but speaks plaintext | Client refuses to downgrade; retries as TLS |
 | Presents a certificate with a different key | Pin mismatch rejected |
+| Sends `session_taken_over`, then closes | Reconnect loop **stops**; no eviction war |
+| Sends `server_busy` carrying the outstanding `chat.id` | Turn fails immediately, not at the 60 s timeout |
+| Drops the connection mid-turn, then answers the old `chat` on the next one | Client must not attribute a stale reply to the new utterance (§3.5) |
 
 ---
 
@@ -811,6 +941,12 @@ not configurable — it is part of the protocol.
 
 The client never gives up and never downgrades the transport to get a
 connection. A server that is down simply sees a reconnect every 30 s.
+
+**Two codes suspend the loop** rather than feeding it (§5):
+`session_taken_over` (the session is another connection's now) and
+`unsupported_version` (retrying cannot fix a version mismatch). Both are
+terminal until the game deliberately re-identifies. Every other disconnect —
+including a silent socket death — goes back through the backoff.
 
 ### Action parameter bounds
 

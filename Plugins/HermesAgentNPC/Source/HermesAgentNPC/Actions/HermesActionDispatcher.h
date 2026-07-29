@@ -19,6 +19,9 @@ class UHermesActionDispatcher : public UObject
 public:
 	void RegisterHandler(TScriptInterface<IHermesActionHandler> Handler);
 
+	/** 등록된 핸들러를 모두 비운다. NPC 를 갈아끼울 때 옛 핸들러를 남기지 않는다. */
+	void ResetHandlers();
+
 	/** 라우팅 후 action_result JSON 문자열을 OnResult 로 반환한다. */
 	void Dispatch(const FHermesActionPayload& Payload,
 		TFunction<void(const FString& ActionResultJson)> OnResult);

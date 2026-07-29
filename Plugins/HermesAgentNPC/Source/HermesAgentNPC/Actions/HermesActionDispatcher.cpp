@@ -14,6 +14,11 @@ void UHermesActionDispatcher::RegisterHandler(TScriptInterface<IHermesActionHand
 	}
 }
 
+void UHermesActionDispatcher::ResetHandlers()
+{
+	Handlers.Reset();
+}
+
 void UHermesActionDispatcher::Dispatch(const FHermesActionPayload& Payload,
 	TFunction<void(const FString&)> OnResult)
 {

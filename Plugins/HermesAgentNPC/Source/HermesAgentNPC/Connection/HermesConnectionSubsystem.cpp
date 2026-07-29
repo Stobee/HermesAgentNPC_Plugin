@@ -69,10 +69,36 @@ FString UHermesConnectionSubsystem::LoadOrCreatePlayerId()
 void UHermesConnectionSubsystem::RegisterNpc(AHermesNPCCharacter* Npc)
 {
 	if (!Npc || !Dispatcher) return;
+
+	if (ActiveNpc.IsValid() && ActiveNpc.Get() != Npc)
+	{
+		// 레벨에 NPC 를 둘 이상 배치했을 때 조용히 이상해지는 것을 막는다.
+		// 어느 쪽이 대상인지 로그로 분명히 남긴다.
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Hermes] 활성 NPC 교체: %s -> %s. 이 플러그인은 NPC 한 명만 대상으로 한다."),
+			*ActiveNpc->GetName(), *Npc->GetName());
+	}
+
+	// 옛 핸들러를 남기면 Dispatch 의 first-match 규칙 때문에 액션이 계속
+	// 옛 NPC 로 가고 새 NPC 는 아무것도 받지 못한다.
+	Dispatcher->ResetHandlers();
+
 	UMoveToActionHandler* H1 = NewObject<UMoveToActionHandler>(this); H1->Init(Npc); Dispatcher->RegisterHandler(H1);
 	UFollowPlayerActionHandler* H2 = NewObject<UFollowPlayerActionHandler>(this); H2->Init(Npc); Dispatcher->RegisterHandler(H2);
 	UInventoryActionHandler* H3 = NewObject<UInventoryActionHandler>(this); H3->Init(Npc); Dispatcher->RegisterHandler(H3);
 	UItemTransferActionHandler* H4 = NewObject<UItemTransferActionHandler>(this); H4->Init(Npc); Dispatcher->RegisterHandler(H4);
+
+	ActiveNpc = Npc;
+}
+
+void UHermesConnectionSubsystem::UnregisterNpc(AHermesNPCCharacter* Npc)
+{
+	// 활성이 아닌 NPC 가 사라지는 것은 현재 배선과 무관하다. 여기서 무조건
+	// 비우면 다른 NPC 의 EndPlay 가 활성 NPC 의 배선을 끊어버린다.
+	if (!Npc || ActiveNpc.Get() != Npc) return;
+
+	if (Dispatcher) Dispatcher->ResetHandlers();
+	ActiveNpc.Reset();
 }
 
 void UHermesConnectionSubsystem::SendJson(const FString& Json)

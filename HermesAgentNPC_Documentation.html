@@ -543,6 +543,9 @@
                     </div>
                 </div>
             </div>
+            <div class="alert info">
+                <strong>대상 범위 — 단일 NPC:</strong> 프로토콜에 NPC 식별자가 존재하지 않으므로 하나의 연결은 정확히 하나의 NPC를 조종합니다. 활성 NPC는 <code>AHermesNPCCharacter</code>의 <code>Auto Register As Active Npc</code> 체크박스 또는 <code>BecomeActiveHermesNpc()</code> 호출로 프로젝트가 지정하며, 새 NPC가 등록되면 <code>UHermesActionDispatcher::ResetHandlers()</code>로 이전 배선을 제거하고 경고를 남깁니다. 다중 대화형 NPC는 설계상 범위 밖입니다.
+            </div>
         </section>
 
         <!-- 4. TCP 프레이밍 규약 -->

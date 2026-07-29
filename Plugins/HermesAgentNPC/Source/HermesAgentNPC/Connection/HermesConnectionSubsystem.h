@@ -22,7 +22,18 @@ public:
 	virtual void Deinitialize() override;
 
 	void SendChat(const FString& Text);
+
+	/**
+	 * 이 연결이 대상으로 삼을 NPC 를 지정한다. 플러그인은 NPC 한 명만 다루므로
+	 * 이미 지정된 NPC 가 있으면 경고를 남기고 교체한다. 프로토콜에 NPC 식별자가
+	 * 없어 두 NPC 를 동시에 둘 방법이 없다(ue5-socket-protocol.md "Scope" 참조).
+	 */
 	void RegisterNpc(AHermesNPCCharacter* Npc);
+
+	/** Npc 가 현재 활성 NPC 일 때만 해제한다. 다른 NPC 의 종료는 무시한다. */
+	void UnregisterNpc(AHermesNPCCharacter* Npc);
+
+	AHermesNPCCharacter* GetActiveNpc() const { return ActiveNpc.Get(); }
 
 	FOnChatResponse OnChatResponse;
 	FOnConnectionStateChanged OnConnectionStateChanged;
@@ -40,6 +51,9 @@ private:
 
 	UPROPERTY()
 	UHermesActionDispatcher* Dispatcher = nullptr;
+
+	/** 액션이 향하는 단 하나의 NPC. 레벨 전환 등으로 파괴되면 자동으로 무효화된다. */
+	TWeakObjectPtr<AHermesNPCCharacter> ActiveNpc;
 
 	FString PlayerId;
 	bool bIdentified = false;
