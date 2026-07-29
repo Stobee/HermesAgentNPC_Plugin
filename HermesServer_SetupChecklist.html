@@ -335,13 +335,12 @@ footer {
             <input type="checkbox" id="c2">
             <div class="item-body">
                 <label class="item-title" for="c2">
-                    설계 문서 §10.5~§10.6 훑어보기<span class="tag tag-opt">선택</span>
+                    작업 프롬프트 준비<span class="tag tag-req">필수</span>
                 </label>
                 <p class="item-why">
-                    <code>docs/superpowers/specs/2026-07-28-hermes-settings-globalization-design.md</code> —
-                    모듈 경계와 llama-server 연동 결정의 <strong>근거와 배경</strong>입니다.
-                    결정 자체는 프롬프트에 다 옮겨져 있으므로 없어도 진행할 수 있습니다.
-                    "왜 이렇게 정했나"가 궁금할 때 보세요.
+                    <code>claude_code_prompt_hermes_server.md</code> — 아키텍처 고정 사항, 구현 순서,
+                    조용히 깨지는 함정 목록이 들어 있습니다.
+                    <strong>프롬프트와 스펙이 어긋나 보이면 스펙이 이깁니다.</strong>
                 </p>
             </div>
         </li>
@@ -508,6 +507,83 @@ $sha = [Security.Cryptography.SHA256]::Create()
     </ul>
 </section>
 
+<!-- 모듈 경계 -->
+<section>
+    <h2><span class="step-num">◫</span>모듈 경계</h2>
+    <p class="section-note">다음 다섯 축을 분리하세요. 이후의 교체와 확장은 이 경계를 따라 일어납니다.</p>
+    <div class="table-scroll">
+        <table>
+            <thead><tr><th>축</th><th>책임</th></tr></thead>
+            <tbody>
+                <tr>
+                    <td><strong>전송 / 세션</strong></td>
+                    <td>TLS 종단, 소켓 수락, 프레이밍, 자격 증명 검증, <code>player_id</code> ↔ 연결 바인딩, 재접속 시 세션 복원</td>
+                </tr>
+                <tr>
+                    <td><strong>신원 저장소</strong></td>
+                    <td><code>player_id</code> ↔ <code>session_token</code> 매핑. <strong>재시작 후에도 유지</strong>되어야 플레이어가 세션에서 잠기지 않습니다</td>
+                </tr>
+                <tr>
+                    <td><strong>대화 저장소</strong></td>
+                    <td><code>chat_id</code>별 히스토리. 분리하면 서버를 재시작해도 맥락이 유지됩니다</td>
+                </tr>
+                <tr>
+                    <td><strong>LLM 백엔드</strong></td>
+                    <td>llama-server 호출을 <strong>한 모듈 뒤에</strong> 두세요. 추상화 계층을 미리 설계하라는 뜻이 아니라, llama 관련 호출이 코드베이스 전역에 퍼지지 않게만 하라는 뜻입니다</td>
+                </tr>
+                <tr>
+                    <td><strong>액션 카탈로그</strong></td>
+                    <td>화이트리스트 명령 정의와 LLM 툴 스키마를 <strong>한 곳에서 선언</strong>하세요. 프로토콜 스펙 · 서버 툴 정의 · UE 핸들러 세 곳을 손으로 맞추다 어긋나는 것이 실제로 있었던 사고입니다</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="callout info">
+        <strong>클라이언트는 서버 내부 구조에 영향받지 않습니다</strong>
+        프로토콜 스펙이 자기완결적 계약 역할을 하므로, 위 경계는 순전히 서버 쪽 편의를 위한 것입니다.
+        어떻게 나누든 와이어에 나가는 프레임이 스펙과 같으면 클라이언트는 차이를 모릅니다.
+    </div>
+</section>
+
+<!-- llama 연동 -->
+<section>
+    <h2><span class="step-num">◈</span>llama-server 연동 시 지켜야 할 것</h2>
+    <p class="section-note">프로토콜 계약과 직접 맞물리는 항목들입니다. 상세는 작업 프롬프트에 있습니다.</p>
+    <div class="table-scroll">
+        <table>
+            <thead><tr><th>항목</th><th>이유</th></tr></thead>
+            <tbody>
+                <tr>
+                    <td><strong>GBNF / JSON 스키마로 툴 출력 강제</strong></td>
+                    <td><code>command</code>를 enum, <code>quantity</code>를 min/max 정수로 박으면 <strong>범위 밖 값이 생성 자체가 불가능</strong>해집니다. 걸러지는 것이 아니라 토큰 샘플링에서 배제됩니다</td>
+                </tr>
+                <tr>
+                    <td><strong>SSE → <code>chat_delta</code> 중계 시 배칭</strong></td>
+                    <td>토큰마다 보내지 말고 <strong>50ms 또는 토큰 몇 개 단위로</strong> 묶으세요. 안 묶으면 클라이언트의 틱 예산과 큐 상한을 정상 동작 중에 압박합니다</td>
+                </tr>
+                <tr>
+                    <td><strong><code>/health</code>로 준비 상태 구분</strong></td>
+                    <td>모델 로딩 중에 온 <code>chat</code>은 <code>server_busy</code>로 답합니다. 이것이 그 에러 코드의 실제 발생 지점입니다</td>
+                </tr>
+                <tr>
+                    <td><strong>슬롯 포화 시 큐 깊이 상한</strong></td>
+                    <td>GPU가 하나이므로 이 상한이 서버측 과부하 방어의 실제 구현 지점입니다. 초과분은 <code>rate_limited</code>를 해당 <code>chat.id</code>와 함께 회신합니다</td>
+                </tr>
+                <tr>
+                    <td><strong>KV 캐시 슬롯 저장 · 복원</strong></td>
+                    <td>재접속 시 캐시째 복원하면 맥락 재구성 비용이 사라집니다. 대화 저장소와 같은 수명주기로 설계하세요</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="callout warn">
+        <strong>API 이름은 빌드마다 다릅니다</strong>
+        llama.cpp의 정확한 파라미터·엔드포인트 이름은 버전에 따라 달라집니다.
+        위 표는 <strong>필요한 기능을 규정할 뿐 API 이름을 확정하지 않습니다</strong> —
+        사용하는 빌드의 <code>server</code> 문서로 확인하세요.
+    </div>
+</section>
+
 <!-- 재량/고정 -->
 <section>
     <h2><span class="step-num">✓</span>재량과 고정</h2>
@@ -572,7 +648,7 @@ $sha = [Security.Cryptography.SHA256]::Create()
 <footer>
     Hermes Agent NPC — 서버 구현 준비물 체크리스트 ·
     근거 문서: <code>ue5-socket-protocol.md</code>,
-    설계 문서 §10.5~§10.6 · 최종 갱신 2026-07-29
+    <code>claude_code_prompt_hermes_server.md</code> · 최종 갱신 2026-07-29
 </footer>
 
 </div>
