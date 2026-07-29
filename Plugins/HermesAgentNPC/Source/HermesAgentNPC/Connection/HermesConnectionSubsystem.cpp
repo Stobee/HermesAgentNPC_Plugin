@@ -20,7 +20,7 @@ void UHermesConnectionSubsystem::Initialize(FSubsystemCollectionBase& Collection
 
 	const UHermesSettings* Settings = GetDefault<UHermesSettings>();
 
-	PlayerId = LoadOrCreatePlayerId();
+	LoadCredentials();
 
 	Dispatcher = NewObject<UHermesActionDispatcher>(this);
 
@@ -53,18 +53,46 @@ void UHermesConnectionSubsystem::Deinitialize()
 	Super::Deinitialize();
 }
 
-FString UHermesConnectionSubsystem::LoadOrCreatePlayerId()
+void UHermesConnectionSubsystem::LoadCredentials()
 {
 	const FString SaveSlot = GetDefault<UHermesSettings>()->SaveSlotName;
 
+	// 신원은 서버가 발급한다. 여기서 만들어내지 않는다 — 클라이언트가 자기
+	// 신원을 주장하는 구조면 임의 UUID 로 남의 세션에 접근할 수 있다.
 	if (UHermesSaveGame* SG = Cast<UHermesSaveGame>(UGameplayStatics::LoadGameFromSlot(SaveSlot, 0)))
 	{
-		if (!SG->PlayerId.IsEmpty()) return SG->PlayerId;
+		PlayerId     = SG->PlayerId;
+		SessionToken = SG->GetSessionToken();   // 난독화 해제
+
+		// 토큰만 손상되었다면 반쪽 자격 증명으로 접속을 시도하지 않는다.
+		// MakeIdentify 가 둘 다 있어야 실어 보내므로 자연히 재발급 경로가 된다.
+		if (PlayerId.IsEmpty() || SessionToken.IsEmpty())
+		{
+			PlayerId.Reset();
+			SessionToken.Reset();
+		}
 	}
-	UHermesSaveGame* NewSG = Cast<UHermesSaveGame>(UGameplayStatics::CreateSaveGameObject(UHermesSaveGame::StaticClass()));
-	NewSG->PlayerId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens).ToLower();
-	UGameplayStatics::SaveGameToSlot(NewSG, SaveSlot, 0);
-	return NewSG->PlayerId;
+}
+
+void UHermesConnectionSubsystem::SaveCredentials()
+{
+	const FString SaveSlot = GetDefault<UHermesSettings>()->SaveSlotName;
+
+	UHermesSaveGame* SG = Cast<UHermesSaveGame>(
+		UGameplayStatics::CreateSaveGameObject(UHermesSaveGame::StaticClass()));
+	if (!SG)
+	{
+		UE_LOG(LogHermes, Warning, TEXT("failed to create save game object"));
+		return;
+	}
+	SG->PlayerId = PlayerId;
+	SG->SetSessionToken(SessionToken);   // 난독화해 보관
+
+	if (!UGameplayStatics::SaveGameToSlot(SG, SaveSlot, 0))
+	{
+		// 다음 실행에서 새 신원을 발급받게 된다. 데이터 손실이지 보안 결함은 아니다.
+		UE_LOG(LogHermes, Warning, TEXT("failed to save credentials to slot '%s'"), *SaveSlot);
+	}
 }
 
 void UHermesConnectionSubsystem::RegisterNpc(AHermesNPCCharacter* Npc)
@@ -109,7 +137,8 @@ void UHermesConnectionSubsystem::SendJson(const FString& Json)
 
 void UHermesConnectionSubsystem::SendIdentify()
 {
-	SendJson(HermesJson::MakeIdentify(PlayerId, FString(), FString()));
+	// 자격 증명이 없으면 MakeIdentify 가 신규 발급 요청 형태로 만든다.
+	SendJson(HermesJson::MakeIdentify(PlayerId, SessionToken, FString()));
 }
 
 void UHermesConnectionSubsystem::SendChat(const FString& Text)
@@ -175,6 +204,29 @@ void UHermesConnectionSubsystem::HandleFrame(const TSharedPtr<FJsonObject>& Obj)
 
 	if (Type == HermesMsg::Identified)
 	{
+		FString NewPid, NewTok, ChatId;
+		if (!HermesJson::ParseIdentified(Obj, NewPid, NewTok, ChatId))
+		{
+			// v1 호환 모드를 두지 않는다. 호환 모드는 곧 "인증 없이도 동작하는
+			// 경로"라 신원 발급의 목적을 무력화한다. 조용히 동작하느니 크게 실패한다.
+			UE_LOG(LogHermes, Error,
+				TEXT("server did not return session credentials. "
+				     "This client requires protocol v2. Closing connection."));
+			if (Worker)
+			{
+				Worker->RequestReconnect();
+			}
+			return;
+		}
+
+		// 최초 발급이거나 서버가 값을 바꿔 준 경우에만 저장한다.
+		if (NewPid != PlayerId || NewTok != SessionToken)
+		{
+			PlayerId     = NewPid;
+			SessionToken = NewTok;
+			SaveCredentials();
+		}
+
 		bIdentified = true;
 		FlushPendingChats();
 		OnConnectionStateChanged.Broadcast(true);

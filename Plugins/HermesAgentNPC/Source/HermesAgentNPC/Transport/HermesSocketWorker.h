@@ -25,6 +25,8 @@ public:
 	bool DequeueInbound(FString& OutJson);     // 워커 → 게임
 	bool IsConnected() const { return bConnected; }
 	void RequestStop();
+	/** 현재 연결을 끊고 재연결 루프로 돌아가게 한다. 게임 스레드에서 호출. */
+	void RequestReconnect();
 
 	// FRunnable
 	virtual uint32 Run() override;
@@ -53,5 +55,6 @@ private:
 	FThreadSafeCounter OutboundCount;
 
 	FThreadSafeBool bStopRequested = false;
+	FThreadSafeBool bReconnectRequested = false;
 	FThreadSafeBool bConnected = false;
 };

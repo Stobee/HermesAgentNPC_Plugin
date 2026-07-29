@@ -42,7 +42,10 @@ private:
 	bool Tick(float DeltaTime);              // 게임스레드 인바운드 소비
 	void HandleFrame(const TSharedPtr<class FJsonObject>& Obj);
 	void SendJson(const FString& Json);      // 워커 아웃바운드로
-	FString LoadOrCreatePlayerId();
+	/** SaveGame 에서 자격 증명을 읽는다. 없으면 PlayerId/SessionToken 이 빈 채로 남는다. */
+	void LoadCredentials();
+	/** 서버가 발급한 자격 증명을 SaveGame 에 저장한다. 실패해도 연결은 유지한다. */
+	void SaveCredentials();
 	void SendIdentify();
 	void FlushPendingChats();
 
@@ -56,6 +59,7 @@ private:
 	TWeakObjectPtr<AHermesNPCCharacter> ActiveNpc;
 
 	FString PlayerId;
+	FString SessionToken;
 	bool bIdentified = false;
 	bool bWasConnected = false;
 	int32 ChatCounter = 0;

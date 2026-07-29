@@ -57,6 +57,7 @@ bool FHermesSocketWorker::DequeueInbound(FString& OutJson)
 	return false;
 }
 void FHermesSocketWorker::RequestStop() { bStopRequested = true; }
+void FHermesSocketWorker::RequestReconnect() { bReconnectRequested = true; }
 void FHermesSocketWorker::Stop() { bStopRequested = true; }
 
 bool FHermesSocketWorker::ConnectSocket()
@@ -240,6 +241,13 @@ uint32 FHermesSocketWorker::Run()
 				Backoff = FMath::Min(Backoff * 2.f, MaxBackoff);
 				continue;
 			}
+		}
+
+		if (bReconnectRequested)
+		{
+			bReconnectRequested = false;
+			CloseSocket();       // 다음 루프에서 재연결
+			continue;
 		}
 
 		if (!SendAllPending() || !ReceiveAvailable())
