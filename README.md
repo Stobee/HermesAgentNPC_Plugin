@@ -84,7 +84,7 @@ Plugins/
 | :--- | :--- | :--- |
 | `Host` | `127.0.0.1` | 백엔드 호스트명 또는 IP (도메인명 사용 가능) |
 | `Port` | `8770` | TCP 포트 |
-| `Initial Reconnect Delay` | `1.0` 초 | 재연결 초기 지연 시간 |
+| `Initial Reconnect Delay` | `0.5` 초 | 재연결 초기 지연 시간 (실패마다 2배 증가) |
 | `Max Reconnect Delay` | `30.0` 초 | 재연결 백오프 최대 지연 시간 |
 | `Action Timeout Seconds` | `15.0` 초 | 액션 수행 결과 회신 타임아웃 |
 

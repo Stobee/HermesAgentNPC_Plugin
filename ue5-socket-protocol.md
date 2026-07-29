@@ -11,6 +11,15 @@ implement either side from this document alone, without reading the other's code
 
 > **The server address is client configuration, not part of this protocol.**
 > The UE5 client reads it from project settings; see the plugin README.
+>
+> The endpoint may be a **hostname or a literal IP**. The client resolves names
+> through the platform resolver and prefers IPv4 among the returned addresses,
+> so a server may be published under a DNS name. The configured name — not the
+> resolved address — is what TLS SNI and certificate verification use (§0).
+
+Every client-side limit this document cites is a **configurable default**, not a
+protocol constant. §9 lists them with their setting names so a server
+implementer can see the exact knobs and their shipped values.
 
 ## What changed from v1
 
@@ -400,10 +409,10 @@ which on the client side is the moment the player tries to talk to the NPC.
 
 The UE5 client behaves as follows (defaults; all configurable):
 
-| Rule | Default |
-|------|---------|
-| Send `ping` after this much **send**-silence | 20 s |
-| Declare the connection dead after this much **receive**-silence, then reconnect | 60 s |
+| Rule | Setting | Default |
+|------|---------|---------|
+| Send `ping` after this much **send**-silence | `KeepAlivePingIntervalSeconds` | 20 s |
+| Declare the connection dead after this much **receive**-silence, then reconnect | `PeerTimeoutSeconds` | 60 s |
 
 **Any received frame counts as liveness, not just `pong`.** An active
 conversation keeps the connection alive with no extra pings. Servers are
@@ -452,15 +461,17 @@ display with the final text. Consequences worth relying on:
 
 > **Servers must batch deltas.** One frame per token is tens to hundreds of
 > frames per second, which pressures the client's per-tick frame budget
-> (default 64 frames/tick) and inbound queue cap (default 1024) during
-> **normal** operation. Flush every **~50 ms or every few tokens**.
+> (`MaxInboundFramesPerTick`, default 64) and inbound queue cap
+> (`MaxInboundQueueSize`, default 1024) during **normal** operation. Flush
+> every **~50 ms or every few tokens**. See §9.
 >
 > Clients will not raise those caps to accommodate unbatched streams. The caps
 > exist to stop abusive peers; a well-behaved server should never approach
 > them. A client that hits the inbound cap closes the connection.
 
 Deltas double as **progress signals**. The client fails a `chat` that has seen
-neither a delta nor a final response within its chat timeout (default 60 s).
+neither a delta nor a final response within its chat timeout
+(`ChatResponseTimeoutSeconds`, default 60 s).
 A long generation that keeps streaming is therefore never timed out, while a
 generation that stalls is caught — which is only possible because deltas exist.
 
@@ -548,13 +559,18 @@ unrecognized `command` in an `action_request` defensively (reply `ok=false`,
 > project, so do not treat the numbers as protocol constants — treat the
 > *existence* of bounds as guaranteed.
 >
-> | Constraint | Default | `error` on violation |
-> |---|---|---|
-> | `move_to` coordinates finite and `abs(v) <= MaxWorldCoordinate` | 1e7 cm | `coordinate out of range` |
-> | `item_transfer.quantity` integer, `1 <= q <= MaxItemQuantity` | 999999 | `quantity out of range` |
-> | `item_transfer.item_id` non-empty, length `<= MaxItemIdLength` | 64 | `invalid item_id` |
-> | Action requests processed per second | 20 | `rate limited` |
-> | Response deadline before the client self-reports failure | 15 s | `timeout` |
+> | Constraint | Setting | Default | `error` on violation |
+> |---|---|---|---|
+> | `move_to` coordinates finite and `abs(v) <=` the bound | `MaxWorldCoordinate` | 1e7 cm (100 km) | `coordinate out of range` |
+> | `item_transfer.quantity` integer, `1 <= q <=` the bound | `MaxItemQuantity` | 999999 | `quantity out of range` |
+> | `item_transfer.item_id` non-empty, length `<=` the bound | `MaxItemIdLength` | 64 | `invalid item_id` |
+> | Action requests processed per second | `MaxActionsPerSecond` | 20 | `rate limited` |
+> | Response deadline before the client self-reports failure | `ActionTimeoutSeconds` | 15 s | `timeout` |
+>
+> Excess requests are **rejected, not queued** — a burst above
+> `MaxActionsPerSecond` gets an immediate `ok=false, error="rate limited"` per
+> request rather than delayed execution, so the agent learns right away instead
+> of waiting out a silent backlog.
 >
 > **Constrain generation rather than relying on these rejections.** Use a JSON
 > schema or GBNF grammar on the LLM so `command` can only be one of the
@@ -729,7 +745,7 @@ server never produces. Small stubs make them reproducible:
 
 | Stub behaviour | What it verifies on the client |
 |---|---|
-| Accepts TLS, never sends `identified` | Pending-utterance cap; no unbounded growth |
+| Accepts TLS, never sends `identified` | Pending-utterance cap (`MaxPendingChats`, default 32); no unbounded growth |
 | Sends `identified` without `session_token` | v1 detection — loud failure, no silent downgrade |
 | Sends a few `chat_delta` then stops | Chat timeout fires; UI does not hang on "생각 중..." |
 | Streams `chat_delta` for >60 s then completes | Long generations are **not** timed out |
@@ -737,3 +753,82 @@ server never produces. Small stubs make them reproducible:
 | Floods `action_request` | Rate limiter replies `rate limited`, framerate holds |
 | Accepts TCP but speaks plaintext | Client refuses to downgrade; retries as TLS |
 | Presents a certificate with a different key | Pin mismatch rejected |
+
+---
+
+## 9. Client-enforced limits (reference)
+
+Everything here is **client configuration**, not protocol. It is documented so a
+server implementer can see what a well-behaved server must stay under, and what
+happens when it does not. All values are per-project settings on the UE5 client
+(`Project Settings > Plugins > Hermes Agent NPC`, persisted to
+`Config/DefaultGame.ini`); the defaults below are what ships.
+
+**Treat the existence of each limit as guaranteed and the number as advisory.**
+A server that assumes the defaults will break on a project that tuned them.
+
+### Transport and queues
+
+| Setting | Default | Behaviour on breach |
+|---|---|---|
+| `MaxInboundQueueSize` | 1024 frames | Connection is **closed**, then reconnected. |
+| `MaxInboundFramesPerTick` | 64 frames | Excess is deferred to the next tick, not dropped. |
+| `MaxOutboundQueueSize` | 256 frames | New outbound frames are **dropped**. |
+| `MaxPendingChats` | 32 utterances | Oldest pending utterance is dropped (FIFO). |
+
+`MaxPendingChats` bounds utterances the player produced **before `identified`
+arrived**. A server that accepts the connection and then never completes the
+handshake cannot make the client grow without bound — it just loses the oldest
+messages.
+
+Frame body size is capped at **1 MiB** by the framing layer itself (§1) and is
+not configurable — it is part of the protocol.
+
+### Liveness
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `ActionTimeoutSeconds` | 15 s | Client's own deadline for producing `action_result` (§4.5). |
+| `KeepAlivePingIntervalSeconds` | 20 s | Send-silence before the client pings (§4.7). |
+| `PeerTimeoutSeconds` | 60 s | Receive-silence before the connection is declared dead (§4.7). |
+| `ChatResponseTimeoutSeconds` | 60 s | Silence after `chat` before the turn is failed; any `chat_delta` resets it (§4.9). |
+
+> **Status:** only `ActionTimeoutSeconds` is enforced today. The client already
+> answers a server `ping` with `pong`, but the three keepalive and chat-timeout
+> keys are not consumed yet — it does not **initiate** pings, does not reap a
+> silent connection, and does not time out a `chat`. They land with the v2
+> protocol work. A server built to §4.7 and §4.9 is correct either way; it just
+> cannot rely on the client noticing a half-open connection in the meantime, so
+> **the server should run its own liveness check** rather than assume the client
+> will drop first.
+
+### Reconnect backoff
+
+| Setting | Default | Notes |
+|---|---|---|
+| `InitialReconnectDelay` | 0.5 s | Doubles after each failed attempt. |
+| `MaxReconnectDelay` | 30 s | Ceiling. Retries continue **indefinitely**. |
+
+The client never gives up and never downgrades the transport to get a
+connection. A server that is down simply sees a reconnect every 30 s.
+
+### Action parameter bounds
+
+See the table in §6 — `MaxWorldCoordinate`, `MaxItemQuantity`,
+`MaxItemIdLength`, `MaxActionsPerSecond`.
+
+### TLS settings
+
+| Setting | Default | Notes |
+|---|---|---|
+| `bUseTLS` | `true` | Plaintext is development only (§0). |
+| `TlsServerName` | empty | SNI / certificate hostname; falls back to the configured host. |
+| `TlsPinnedPublicKeyHashes` | empty | base64 SPKI SHA-256 pins; non-empty enables pinning (§0). |
+| `TlsPrivateCaPath` | empty | PEM path relative to the project directory. |
+| `TlsHandshakeTimeoutSeconds` | 10 s | Handshake deadline. |
+
+> **Status:** these keys exist on the client and are carried into the transport
+> layer, but the TLS transport that consumes them is not implemented yet. Until
+> it is, the client speaks plaintext TCP regardless of `bUseTLS`. §0 is the
+> contract the server should be built against; do not read this table as a
+> statement that the client currently verifies your certificate.
