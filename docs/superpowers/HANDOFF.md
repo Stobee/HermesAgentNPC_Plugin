@@ -8,11 +8,12 @@
 
 ## 지금 상태
 
-**Phase 1(Task 1~3), Phase 2(Task 4~8), Task 18 완료. 프로토콜 계약 확정 및 단일 NPC 소유권 구현 완료.**
+**Phase 1(Task 1~3), Phase 2(Task 4~8), Task 18 완료. 프로토콜 계약 확정, 단일 NPC 소유권 구현,
+서버 구현자용 문서 세트 완성.**
 
 | Phase | 범위 | 상태 |
 |---|---|---|
-| 프로토콜 v2 문서 | Task 17 (앞당김) | ✅ 완료 (2026-07-29 계약 3건 추가 확정) |
+| 프로토콜 문서 | Task 17 (앞당김) | ✅ 완료 (2026-07-29 계약 4건 추가 확정, v1 프레이밍 제거) |
 | 1 — 설정 전역화 | Task 1~3 | ✅ **완료** |
 | 2 — 입력 강건성 | Task 4~8 | ✅ **완료** (Task 4~8 전원 완료) |
 | 3 — 프로토콜 v2 코드 | Task 9~13b **+ 13c~13e** | ⛔ **보류** (서버 v2 준비 후) |
@@ -26,7 +27,8 @@
 **작업 트리에 미커밋 코드 변경이 없다.** 2026-07-29 빌드(exit 0) 및 테스트 **13종** 전원 PASS를 확인했다.
 
 **다음 할 일:**
-- 백엔드 v2 서버 재구축이 완료되면 Phase 3(Task 9~13b, **13c~13e**) 및 Phase 4(Task 14~16) 진행.
+- **백엔드 서버 구현이 먼저다.** 아래 "서버 구현자용 문서 세트"로 별도 세션에서 진행한다.
+- 서버가 올라오면 Phase 3(Task 9~13b, **13c~13e**) 및 Phase 4(Task 14~16) 진행.
 - 서버 준비 전까지 현 브랜치 `feat/settings-globalization-protocol-v2`의 준비 완료 상태 유지.
 
 ## 📌 2026-07-29에 확정된 프로토콜 계약
@@ -54,6 +56,28 @@
   해당 Task(12·13·14~16) 완료 시점에 제거해야 한다. 방치하면 문서가 거짓말을 한다.
 - §9 "Reconnect backoff"의 **"두 코드가 루프를 정지시킨다"는 서술은 현재 구현이 아니다.**
   Task 13d가 이를 실제로 만든다. 그 전까지 문서가 앞서 있는 상태다.
+- `HermesServer_SetupChecklist.html`의 **"현재 클라이언트가 하지 않는 것"** 표(6행)는
+  Task 9~16이 진행되며 한 줄씩 지워져야 한다. **다 지워지면 그 절 자체를 없앤다.**
+
+## 📦 서버 구현자용 문서 세트 (2026-07-29 완성)
+
+**백엔드 작업은 이 세 개만으로 시작할 수 있다.** 내부 문서(`docs/superpowers/**`)를 참조하지 않는다.
+
+| 문서 | 성격 |
+|---|---|
+| `ue5-socket-protocol.md` | 와이어 계약. 버전 이력 없는 단일 계약서 |
+| `claude_code_prompt_hermes_server.md` | 작업 지시. 아키텍처 고정 사항, 구현 순서, 함정 목록 |
+| `HermesServer_SetupChecklist.html` | 환경 준비 + 모듈 경계 + llama 연동 지침 |
+
+확정된 아키텍처: **에이전트는 Hermes 고정, LLM 백엔드는 llama-server 고정.**
+재량은 모델 파일·샘플링 파라미터·시스템 프롬프트·컨텍스트 정책뿐이다.
+
+> **내부 문서를 이 세트에 다시 끌어들이지 말 것.** 설계 문서 §10.5~§10.6의 필요한 내용은
+> 이미 HTML로 옮겼다. 서버 작업자에게 `docs/superpowers/**`를 노출하지 않는 것이 의도다.
+
+> **v1은 문서에서 완전히 제거되었다.** 플러그인이 미배포라 설치 기반이 없으므로 호환 대상이
+> 존재하지 않는다. 현재 클라이언트가 스펙의 일부만 구현한 것은 "v1 마이그레이션"이 아니라
+> **아직 만들지 않은 기능**이다. 이 구분을 되돌리지 말 것.
 
 ## 문서 위치
 
@@ -61,13 +85,24 @@
 |---|---|
 | 플러그인 가이드 문서 | `README.md` |
 | 기술 사양 HTML 문서 | `HermesAgentNPC_Documentation.html` |
-| 설계 스펙 | `docs/superpowers/specs/2026-07-28-hermes-settings-globalization-design.md` |
-| 구현 계획서 | `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md` |
-| 프로토콜 v2 계약 | `ue5-socket-protocol.md` |
+| 프로토콜 계약 | `ue5-socket-protocol.md` |
+| 서버 작업 프롬프트 | `claude_code_prompt_hermes_server.md` |
+| 서버 준비물 체크리스트 | `HermesServer_SetupChecklist.html` |
+| 설계 스펙 (내부) | `docs/superpowers/specs/2026-07-28-hermes-settings-globalization-design.md` |
+| 구현 계획서 (내부) | `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md` |
 
 ## 커밋 히스토리
 
 ```
+53b7084  docs: 서버 구현자용 문서에서 내부 설계 문서 참조 제거
+9581910  docs: 서버 프롬프트를 스펙과 함께 2종만으로 자족하게 정리
+19f7656  docs: 서버 구현 준비물 체크리스트 HTML 추가
+428dc76  docs: 서버 프롬프트를 실제 아키텍처에 맞게 수정 (Hermes/llama-server 고정)
+f9a70cc  docs: 서버 프롬프트에서 클라이언트 프롬프트 참조 제거
+b0d332b  feat: 전용 로그 카테고리 LogHermes 도입
+bfd1539  docs: 프로토콜 문서에서 v1 프레이밍 제거 + Windows 서버 지원
+478e473  docs: 턴 직렬화 확정 및 프로토콜 공백 3건 해소
+6ae4841  docs: 확정된 계약을 Task 13c~13e 로 계획서에 반영
 ff7394f  feat: 활성 NPC 소유권 명시화 + 프로토콜 범위를 단일 NPC로 확정
 3a4673c  docs: 프로토콜 문서 동기화에 따른 인계 기록 갱신
 ad8e852  docs: 프로토콜 문서를 구현된 설정 기본값과 동기화
