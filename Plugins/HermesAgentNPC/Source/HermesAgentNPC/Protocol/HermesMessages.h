@@ -15,6 +15,7 @@ namespace HermesMsg
 	inline const FString Ping          = TEXT("ping");
 	inline const FString Pong          = TEXT("pong");
 	inline const FString Error         = TEXT("error");
+	inline const FString ChatDelta     = TEXT("chat_delta");
 }
 
 /** JSON 직렬화/역직렬화 및 아웃바운드 프레임 빌더. */
@@ -23,9 +24,23 @@ namespace HermesJson
 	bool Parse(const FString& Json, TSharedPtr<FJsonObject>& OutObj);
 	FString Serialize(const TSharedRef<FJsonObject>& Obj);
 
-	FString MakeIdentify(const FString& PlayerId, const FString& PlayerName);
+	/**
+	 * v2 identify 프레임. PlayerId/SessionToken 이 비어 있으면 신규 발급 요청으로
+	 * 해석되어 해당 필드를 싣지 않는다. protocol_version 은 항상 2로 보낸다.
+	 */
+	FString MakeIdentify(const FString& PlayerId, const FString& SessionToken,
+	                     const FString& PlayerName);
 	FString MakeChat(const FString& Id, const FString& Text);
 	FString MakeActionResult(const FString& Id, bool bOk,
 		const TSharedPtr<FJsonObject>& Result, const FString& Error);
+	FString MakePing(const FString& Id);
 	FString MakePong(const FString& Id);
+
+	/**
+	 * identified 프레임에서 자격 증명을 꺼낸다.
+	 * session_token 이 없으면 v1 서버로 판단하고 false 를 반환한다.
+	 * true 일 때만 Out 인자가 채워진다.
+	 */
+	bool ParseIdentified(const TSharedPtr<FJsonObject>& Obj,
+	                     FString& OutPlayerId, FString& OutToken, FString& OutChatId);
 }

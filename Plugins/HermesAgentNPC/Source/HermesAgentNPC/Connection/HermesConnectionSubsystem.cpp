@@ -109,7 +109,7 @@ void UHermesConnectionSubsystem::SendJson(const FString& Json)
 
 void UHermesConnectionSubsystem::SendIdentify()
 {
-	SendJson(HermesJson::MakeIdentify(PlayerId, FString()));
+	SendJson(HermesJson::MakeIdentify(PlayerId, FString(), FString()));
 }
 
 void UHermesConnectionSubsystem::SendChat(const FString& Text)
