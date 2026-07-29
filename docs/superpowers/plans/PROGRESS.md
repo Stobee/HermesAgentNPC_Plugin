@@ -1,6 +1,6 @@
 # Hermes UE5 클라이언트 — 작업 진행 기록
 
-> 마지막 업데이트: 2026-07-29 (프로토콜 문서 동기화 및 테스트 기준선 재검증)
+> 마지막 업데이트: 2026-07-29 (프로토콜 계약 확정 · 단일 NPC 소유권 · Task 13c~13e 추가)
 > 브랜치: `feat/settings-globalization-protocol-v2`
 > 계획 문서: `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md`
 
@@ -25,11 +25,28 @@
   - TLS 키(Task 14~16)와 keepalive·chat 타임아웃 키(Task 12·13)가 **선언만 되어 있고 소비 코드가 없음**을 상태 주석으로 표기
 - [x] 문서 기본값 오류 2건 수정 — HTML `MaxPendingChats` 100→32, README `Initial Reconnect Delay` 1.0s→0.5s
 
-## 자동화 테스트 결과 (총 12종 전원 PASS, 2026-07-29 재실행 확인)
+## 프로토콜 계약 확정 및 단일 NPC 소유권 (2026-07-29, `ff7394f`)
+
+사용자 결정으로 프로토콜의 미정 사항 3건을 확정하고, 플러그인 범위를 단일 NPC로 못박았다.
+
+- [x] **세션 탈취** (§3.4) — 최신 연결이 이긴다. 기존 연결에 `session_taken_over`를 **보내고 나서** 닫는다
+- [x] **재전송 없음** (§3.5) — 와이어에 올라간 `chat`은 재전송하지 않고, 끊긴 연결의 응답은 서버가 폐기한다
+- [x] **에러 코드 10종 확정** (§5) — 코드별 연결 유지/종료 + 클라이언트 반응을 계약으로 명시, `error.id` 선택 필드 추가
+- [x] **단일 NPC 범위 확정** — 프로토콜에 "Scope: one connection, one NPC" 절 추가
+- [x] **활성 NPC 소유권 구현** — `ResetHandlers()` 도입, `RegisterNpc`가 교체 방식으로 전환, `UnregisterNpc`/`EndPlay` 해제, `bAutoRegisterAsActiveNpc` + `BecomeActiveHermesNpc()` (`Hermes.Actions.Dispatcher.Rebind` PASS)
+
+### 이로 인해 늘어난 Phase 3 작업 (계획서에 Task 13c~13e로 추가)
+
+- [ ] **Task 13c** 에러 코드 반응 정책 (순수) — `Hermes.Connection.ErrorPolicy`
+- [ ] **Task 13d** 종료성 에러 시 재연결 루프 정지 — 현재 클라는 무조건 재시도하므로 방치 시 eviction war 발생
+- [ ] **Task 13e** `error.id` 기반 진행 중 턴 즉시 실패 — `Hermes.PendingChats.FailById`
+
+## 자동화 테스트 결과 (총 13종 전원 PASS, 2026-07-29 확인)
 
 - `Hermes.ActionParams.Coordinate` : PASS
 - `Hermes.ActionParams.ItemId` : PASS
 - `Hermes.ActionParams.Quantity` : PASS
+- `Hermes.Actions.Dispatcher.Rebind` : PASS ← 단일 NPC 확정 (2026-07-29)
 - `Hermes.Actions.Dispatcher.Route` : PASS
 - `Hermes.Inventory.AddRemove` : PASS
 - `Hermes.Inventory.AddSaturates` : PASS
@@ -39,4 +56,4 @@
 - `Hermes.RateLimiter.TokenBucket` : PASS
 - `Hermes.Settings.CommandLineOverride` : PASS
 - `Hermes.Util.PushBounded` : PASS
-- `EXIT CODE: 0` (12/12 PASS)
+- `EXIT CODE: 0` (13/13 PASS)

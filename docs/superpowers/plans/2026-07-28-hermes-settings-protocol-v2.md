@@ -27,7 +27,7 @@
   & "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Work\HermesAgentNPC\HermesAgentNPC.uproject" -ExecCmds="Automation RunTests Hermes; Quit" -unattended -nopause -nullrhi
   ```
   단일 테스트는 `Hermes` 대신 전체 테스트명을 넣는다 (예: `Hermes.Settings.CommandLineOverride`).
-- **기존 자동화 테스트 5종이 매 단계 통과해야 한다.** Task 21에서 `identify` 형식이 바뀌며 `HermesMessages.spec.cpp` 기대값이 갱신되는 것만 예외이고, 그 외 기존 테스트를 깨는 변경은 실수다.
+- **기존 자동화 테스트가 매 단계 통과해야 한다.** Task 9에서 `identify` 형식이 바뀌며 `HermesMessages.spec.cpp` 기대값이 갱신되는 것만 예외이고, 그 외 기존 테스트를 깨는 변경은 실수다.
 
 ---
 
@@ -679,7 +679,7 @@ Port=8770
 bUseTLS=False
 ```
 
-> `bUseTLS=False`는 **Phase 4가 끝나기 전까지의 임시값**이다. Task 26에서 서버 인증서 설정과 함께 `True`로 바꾼다. 이 시점에는 TLS 구현 자체가 없으므로 이 값은 읽히기만 하고 아무 동작도 하지 않는다.
+> `bUseTLS=False`는 **Phase 4가 끝나기 전까지의 임시값**이다. Task 19에서 서버 인증서 설정과 함께 `True`로 바꾼다. 이 시점에는 TLS 구현 자체가 없으므로 이 값은 읽히기만 하고 아무 동작도 하지 않는다.
 
 - [ ] **Step 7: 빌드 및 테스트**
 
@@ -1736,7 +1736,7 @@ bool FHermesSocketWorker::DequeueInbound(FString& OutJson)
 
 Expected: 빌드 성공, 테스트 11종 통과.
 
-> **큐 상한은 자동화 테스트를 만들지 않는다.** `FHermesSocketWorker`가 실제 `FSocket`과 전용 스레드에 묶여 있어 단위 테스트하려면 소켓 추상화 리팩터링이 선행되어야 하고, 그 리팩터링은 이 태스크의 목적과 무관하게 범위를 키운다. Task 26의 통합 검증에서 실제 폭주 시나리오로 확인한다.
+> **큐 상한은 자동화 테스트를 만들지 않는다.** `FHermesSocketWorker`가 실제 `FSocket`과 전용 스레드에 묶여 있어 단위 테스트하려면 소켓 추상화 리팩터링이 선행되어야 하고, 그 리팩터링은 이 태스크의 목적과 무관하게 범위를 키운다. Task 19의 통합 검증에서 실제 폭주 시나리오로 확인한다.
 
 - [ ] **Step 7: 커밋**
 
@@ -2739,7 +2739,7 @@ void UHermesDialogueWidget::NativeTick(const FGeometry& MyGeometry, float InDelt
 
 Expected: 빌드 성공, 테스트 15종 통과.
 
-> `chat_delta` 처리 자체는 델리게이트 브로드캐스트뿐이라 별도 자동화 테스트를 만들지 않는다. 프레임 파싱은 이미 `HermesFrameCodec` / `HermesMessages` 테스트가 덮고 있고, 누적 표시는 위젯 상태라 Task 26의 수동 검증에서 확인한다.
+> `chat_delta` 처리 자체는 델리게이트 브로드캐스트뿐이라 별도 자동화 테스트를 만들지 않는다. 프레임 파싱은 이미 `HermesFrameCodec` / `HermesMessages` 테스트가 덮고 있고, 누적 표시는 위젯 상태라 Task 19의 수동 검증에서 확인한다.
 
 - [ ] **Step 6: 커밋**
 
@@ -3850,6 +3850,111 @@ git commit -m "feat: action_event 로 move_to 완료를 비동기 통지"
 - id 당 event 는 최대 1회. 콜백 진입 시 PendingMoveId 를 먼저 비운다
 - 연결이 끊겼으면 event 는 유실된다. 프로토콜이 허용하는 동작이다
 ```
+
+---
+
+> **아래 Task 13c~13e는 2026-07-29에 추가되었다.** 프로토콜 문서에 세션 탈취(§3.4),
+> 재전송 없음(§3.5), 에러 코드 10종(§5)이 확정되면서 클라이언트가 해야 할 일이
+> 늘어난 결과다. Phase 3에 속하며 Task 9~13b와 함께 완료되어야 한다.
+
+## Task 13c: 에러 코드 반응 정책 (순수)
+
+**Files:**
+- Create: `Plugins/HermesAgentNPC/Source/HermesAgentNPC/Connection/HermesErrorPolicy.h` / `.cpp`
+- Create: `Plugins/HermesAgentNPC/Source/HermesAgentNPC/Connection/HermesErrorPolicy.spec.cpp`
+
+**Interfaces:**
+- Consumes: 없음 (순수 함수)
+- Produces: `EHermesErrorReaction`, `HermesErrorPolicy::React(const FString& Code)`
+
+**목적.** `error` 프레임의 `code`마다 클라이언트 반응이 다르다(프로토콜 §5). 이 판정을
+서브시스템 안에 `if` 사슬로 흩뿌리면 테스트할 수 없고 코드가 늘 때마다 누락이 생긴다.
+문자열 하나를 받아 반응을 돌려주는 순수 함수로 분리한다.
+
+```cpp
+enum class EHermesErrorReaction : uint8
+{
+    LogOnly,            // unknown_type, unknown_command
+    ReIdentify,         // not_identified — 재-identify 후 계속
+    DiscardCredentials, // not_authorized — 자격 증명 폐기 후 신규 발급 요청
+    StopReconnect,      // session_taken_over, unsupported_version — 재연결 루프 정지
+    FailPendingTurn,    // rate_limited, server_busy, internal_error — 진행 중 턴 실패
+    ReconnectWithBackoff// bad_frame — 평소대로 재연결
+};
+```
+
+- [ ] **Step 1: 실패하는 테스트 작성** — `Hermes.Connection.ErrorPolicy`
+
+프로토콜 §5의 10개 코드 전부와, 미지의 코드(`""`, `"made_up_code"`)가 `LogOnly`로
+떨어지는지 검증한다. **미지 코드를 종료성으로 취급하면 서버 한 번의 오타가 클라이언트를
+영구 정지시킨다** — 이 케이스를 반드시 테스트에 넣는다.
+
+- [ ] **Step 2: 테스트가 실패하는지 확인** (`Hermes.Connection.ErrorPolicy` 단독 실행)
+- [ ] **Step 3: 구현 작성** — 코드 → 반응 매핑 하나뿐. 분기 외 로직 없음
+- [ ] **Step 4: 테스트 통과 확인 + 전체 스위트 회귀 확인**
+- [ ] **Step 5: 커밋**
+
+---
+
+## Task 13d: 종료성 에러 시 재연결 루프 정지
+
+**Files:**
+- Modify: `Transport/HermesSocketWorker.h` / `.cpp`
+- Modify: `Connection/HermesConnectionSubsystem.h` / `.cpp`
+
+**Interfaces:**
+- Consumes: Task 13c의 `HermesErrorPolicy::React`
+- Produces: `FHermesSocketWorker::SuspendReconnect()`, `UHermesConnectionSubsystem::Reconnect()`
+
+**목적.** 현재 워커는 어떤 이유로 끊기든 무한 백오프 재연결한다(`HermesSocketWorker.cpp:219-229`).
+`session_taken_over`를 받고도 재접속하면 **두 게임 인스턴스가 서로를 영원히 걷어찬다.**
+`unsupported_version`도 재시도로 낫지 않는다.
+
+**설계 주의.** 정지 플래그는 워커 스레드와 게임 스레드가 함께 읽으므로 `FThreadSafeBool`
+(또는 `TAtomic<bool>`)로 둔다. `Run()`의 백오프 대기 루프는 이미 조각 sleep이므로(Task 4)
+매 조각마다 플래그를 확인하면 즉시 빠져나온다.
+
+- [ ] **Step 1: 워커에 `bReconnectSuspended` 추가** — `Run()`의 재연결 진입 지점과 백오프
+  조각 루프에서 확인. 참이면 스레드를 종료 상태로 두되 소멸자 경로는 그대로 동작해야 한다
+- [ ] **Step 2: 서브시스템의 `error` 처리에 정책 배선** — `StopReconnect`면 `SuspendReconnect()` 호출 후
+  사유를 `UE_LOG(Warning)`으로 남긴다. **조용히 멈추면 원인 추적이 불가능하다**
+- [ ] **Step 3: 재개 경로 제공** — `Reconnect()` 공개 함수. 게임이 의도적으로 다시 붙을 때만
+  호출한다(예: 플레이어가 대화를 다시 시작). 프로토콜 §3.4가 요구하는 "의도적 행위"다
+- [ ] **Step 4: 빌드 및 전체 테스트**
+- [ ] **Step 5: 수동 확인** — `session_taken_over` 후 닫는 스텁 서버에 접속 → 로그에 사유가
+  남고 **재연결 시도가 멈춘다**. 두 클라이언트를 동시에 띄워 eviction war가 없음을 확인
+- [ ] **Step 6: 커밋**
+
+---
+
+## Task 13e: `error.id` 기반 진행 중 턴 즉시 실패
+
+**Files:**
+- Modify: `Connection/HermesPendingChats.h` / `.cpp` (Task 13에서 생성)
+- Modify: `Connection/HermesPendingChats.spec.cpp`
+- Modify: `Connection/HermesConnectionSubsystem.cpp`
+
+**Interfaces:**
+- Consumes: Task 13의 발화 추적, Task 13c의 `FailPendingTurn`
+- Produces: `FHermesPendingChats::FailById(const FString& Id)`
+
+**목적.** `rate_limited` / `server_busy` / `internal_error`가 진행 중인 `chat`의 `id`를
+달고 오면(프로토콜 §5), 그 턴을 `ChatResponseTimeoutSeconds`(기본 60초)까지 기다릴 이유가
+없다. 즉시 실패시켜 UI가 "생각 중..."에 머무는 시간을 없앤다.
+
+**전제.** Task 13이 `chat.id`별 진행 중 발화 추적을 이미 만든다. 이 태스크는 타임아웃이 아닌
+경로로도 같은 실패 처리를 태우는 것이다. **`id`가 없는 에러는 어떤 턴도 실패시키지 않는다** —
+어느 턴인지 모르는 채로 아무거나 실패시키면 무관한 대화가 끊긴다.
+
+- [ ] **Step 1: 실패하는 테스트 추가** — `Hermes.PendingChats.FailById`
+  - 진행 중인 두 발화 중 하나의 id로 실패 → 그 턴만 실패하고 다른 턴은 살아 있다
+  - 미지의 id로 실패 → 아무 일도 일어나지 않는다
+- [ ] **Step 2: 테스트가 실패하는지 확인**
+- [ ] **Step 3: `FailById` 구현**
+- [ ] **Step 4: 서브시스템 `error` 처리에 배선** — 반응이 `FailPendingTurn`이고 프레임에 `id`가
+  있을 때만 호출
+- [ ] **Step 5: 테스트 통과 확인 + 전체 스위트 회귀 확인**
+- [ ] **Step 6: 커밋**
 
 ---
 
@@ -5579,10 +5684,13 @@ git commit -m "docs: README·HTML 문서를 설정 기반 및 v2 사양으로 �
 & "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Work\HermesAgentNPC\HermesAgentNPC.uproject" -ExecCmds="Automation RunTests Hermes; Quit" -unattended -nopause -nullrhi
 ```
 
-Expected: **20종 전부 PASS.**
+Expected: **24종 전부 PASS.**
 
 | 테스트 | 출처 |
 |---|---|
+| `Hermes.Actions.Dispatcher.Rebind` | 단일 NPC 확정 (2026-07-29) |
+| `Hermes.Connection.ErrorPolicy` | Task 13c |
+| `Hermes.PendingChats.FailById` | Task 13e |
 | `Hermes.Protocol.FrameCodec.Encode` | 기존 |
 | `Hermes.Protocol.FrameAccumulator.Parse` | 기존 |
 | `Hermes.Protocol.Messages.*` (기존분) | 기존 |
@@ -5622,6 +5730,19 @@ Expected: **20종 전부 PASS.**
 - [ ] `.sav`의 `SessionToken`을 변조 후 접속 → `not_authorized`로 거부되고 연결이 닫힌다
 - [ ] 다른 플레이어의 `player_id`만 넣고 토큰은 자기 것으로 접속 → 거부된다
 - [ ] v1 서버(구버전)에 접속 → 명확한 에러 로그와 함께 실패하고 **조용히 동작하지 않는다**
+- [ ] 같은 자격 증명으로 두 번째 클라이언트 접속 → 첫 번째가 `session_taken_over`를 받고
+      **재연결을 멈춘다**. 두 인스턴스가 서로를 반복해서 걷어차지 않는다 (Task 13d)
+- [ ] `server_busy`를 진행 중 `chat.id`와 함께 보내는 스텁 → 60초를 기다리지 않고
+      **즉시** 실패 표시로 바뀐다 (Task 13e)
+- [ ] 서버가 알 수 없는 `code`를 보냄 → 로그만 남고 연결·재연결이 정상 동작한다 (Task 13c)
+
+- [ ] **Step 5: 단일 NPC 범위 검증**
+
+- [ ] 레벨에 `AHermesNPCCharacter`를 둘 배치하고 둘 다 자동 등록 → 교체 경고가 남고
+      **마지막에 등록한 NPC로만** 액션이 간다
+- [ ] 활성 NPC를 파괴 → 액션이 죽은 액터로 향하지 않는다
+- [ ] `Auto Register As Active Npc`를 끈 액터에서 `BecomeActiveHermesNpc()` 호출 →
+      그 시점부터 대상이 바뀐다
 
 - [ ] **Step 5: 세션 운영 수동 검증**
 
