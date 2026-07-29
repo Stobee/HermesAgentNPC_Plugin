@@ -48,30 +48,23 @@ the same character for the life of a session.
 > client ignores unknown fields (§2), so the action would silently go to the
 > wrong character instead of failing loudly.
 
-## What changed from v1
+## Non-negotiable properties
 
-If you implemented against v1, these are breaking changes:
+Most of this document is detail you can look up. These four are the ones a
+server gets wrong quietly, so they are stated once, up front:
 
-| Area | v1 | v2 |
-|------|----|----|
-| Transport | plaintext TCP | **TLS 1.2+ required** (§0) |
-| Identity | client invents `player_id` | **server issues** `player_id` + `session_token` (§3) |
-| Reconnect auth | none — `player_id` alone was accepted | `(player_id, session_token)` pair is validated (§4.2) |
-| `not_authorized` | optional allow-list | **required** (§5) |
-| Streaming | none | `chat_delta` frames (§4.9) |
-| Long actions | `action_result` claimed completion | `action_result` = accepted, `action_event` = finished (§4.10) |
-| `move_to` result | `{ "arrived": true }` immediately — **a lie** | `{ "started": true }` then a later `{ "arrived": true }` event |
-| Keepalive | server may `ping` | both sides `ping`; receive-silence means death (§4.7) |
-| Version field | none | `protocol_version: 2` in `identify` (§4.1) |
-| Second connection, same identity | undefined | newest wins; the old one is evicted with `session_taken_over` (§3.4) |
-
-The framing layer (§1) is unchanged. The action catalog (§6) keeps the same four
-commands, but now documents the bounds the client enforces and each command's
-completion class.
-
-**There is no compatibility mode.** A v2 client closes the connection when
-`identified` arrives without a `session_token`. A compatibility path is a path
-that works without authentication, which defeats the purpose of v2.
+1. **The server issues the identity.** Clients never invent a `player_id`, and
+   `identified` always carries both `player_id` and `session_token` — including
+   on reconnect (§3, §4.2). A server that omits them leaves the connection
+   unauthenticated, and the client closes it rather than proceeding.
+2. **`action_result` means accepted, not finished.** Completion arrives later as
+   `action_event` (§4.5, §4.10). A client that reports completion at accept time
+   is lying to the agent about where the NPC is.
+3. **One turn at a time.** Chat turns are serialized and their frames are never
+   interleaved (§3.6).
+4. **There is no compatibility mode and no version negotiation.** `identify`
+   carries `protocol_version: 2`; anything else is refused (§5). A path that
+   works without authentication defeats the point of having credentials.
 
 ---
 
@@ -88,6 +81,18 @@ that works without authentication, which defeats the purpose of v2.
     | openssl enc -base64
   ```
 
+  On Windows, run that under Git Bash, or use this PowerShell equivalent.
+  **Do not translate it into a PowerShell pipeline** — PowerShell pipes carry
+  text, not bytes, and will corrupt the DER on its way to the hash. Go through
+  files instead:
+
+  ```powershell
+  openssl x509 -in server.crt -pubkey -noout -out pub.pem
+  openssl pkey -pubin -in pub.pem -outform der -out pub.der
+  $sha = [Security.Cryptography.SHA256]::Create()
+  [Convert]::ToBase64String($sha.ComputeHash([IO.File]::ReadAllBytes("pub.der")))
+  ```
+
 - Pins are on the **public key (SPKI)**, not on the certificate. Renewing the
   certificate with the same key pair keeps existing pins valid; pinning the
   certificate fingerprint would force a client redeploy on every renewal.
@@ -97,9 +102,12 @@ that works without authentication, which defeats the purpose of v2.
 - Plaintext TCP is **development only** and must not be used in deployed
   configurations. **Clients do not fall back to plaintext when TLS fails** —
   a failed handshake is retried as TLS, with backoff, indefinitely.
-- Terminating TLS at a reverse proxy (nginx, Caddy) and speaking plaintext on
-  loopback to the agent process is a supported deployment. The certificate and
-  pin then belong to the proxy.
+- Terminating TLS at a reverse proxy (nginx, Caddy, IIS/ARR) and speaking
+  plaintext on loopback to the agent process is a supported deployment. The
+  certificate and pin then belong to the proxy.
+- **The server's operating system is not part of this protocol.** The contract is
+  length-prefixed frames over TCP; Linux, Windows, or anything else that can hold
+  a socket open is equally valid. Nothing below assumes a platform.
 
 ---
 
@@ -232,7 +240,8 @@ The client persists `player_id` and `session_token` locally.
   Losing it locks every player out.
 - The client sends `protocol_version: 2`. If `identified` arrives **without** a
   `session_token`, the client logs an error and reconnects rather than
-  proceeding. See "What changed from v1" above.
+  proceeding — an unauthenticated session is not a degraded session, it is the
+  wrong session.
 
 ### 3.4 Two connections, one identity — the newcomer wins
 
@@ -404,12 +413,13 @@ just validated:
 | `chat_id` | string | yes | Conversation id for this player. **Server-side bookkeeping — the client never sends it back.** Do not design a flow that expects it to return in a later frame; nothing in §4 carries it. It exists so your logs and storage can key the conversation, and so a server that migrates history has a handle to it. |
 
 > **`identified` must always carry both credentials, including on reconnect.**
-> This is deliberate and load-bearing: it is what makes "no `session_token` in
-> `identified`" an unambiguous v1-server signal. If the server omitted them on
-> reconnect, a v2 client could not distinguish that from talking to a v1 server
-> and would disconnect. Echoing values the client already holds costs nothing —
-> the client overwrites them with identical values, and the channel is
-> encrypted.
+> This is deliberate and load-bearing: it makes "no `session_token` in
+> `identified`" mean exactly one thing — **this server did not authenticate the
+> session** — with no second reading the client has to guess between. If the
+> field were optional on reconnect, a missing token would be ambiguous and the
+> client would have to either trust it or drop a healthy session. Echoing values
+> the client already holds costs nothing: it overwrites them with identical
+> values, and the channel is encrypted.
 >
 > This also gives the server a clean path to **re-issue** credentials (e.g.
 > after a key rotation or a storage migration): return different values and the
@@ -779,12 +789,13 @@ If pathing is rejected outright (unreachable destination, no navmesh), reply
 `action_result` with `ok=false, error="path blocked"` and send **no** event.
 
 - `eta_seconds`: float, optional. Best-effort estimate; omit if unknown.
-- `started`: bool. Always `true` when `ok=true` — present so the agent can
-  distinguish "accepted" from a legacy `arrived` payload.
+- `started`: bool. Always `true` when `ok=true` — present so the agent can tell
+  "accepted" apart from a payload that claims arrival.
 
-> `arrived: true` in `action_result` is a **v1 shape and is no longer valid**.
-> It claimed completion at accept time, which told the agent the NPC had
-> arrived when it had not yet moved.
+> **Never put `arrived: true` in an `action_result`.** It claims completion at
+> accept time, which tells the agent the NPC has arrived when it has not yet
+> moved. Arrival is reported by `action_event`, and only when it actually
+> happens.
 
 ### `follow_player` — instant
 
@@ -849,8 +860,9 @@ observable outcome so the NPC can talk about it.
 2. Send `identify` with `protocol_version: 2`, including `player_id` and
    `session_token` if you have them stored, omitting **both** if you do not.
 3. Wait for `identified`. Persist the `player_id` and `session_token` it
-   returns. If it has no `session_token`, you are talking to a v1 server —
-   log loudly and disconnect.
+   returns. **If it has no `session_token`, the server did not authenticate this
+   session** — log loudly and disconnect. Do not proceed on the assumption that
+   the server "probably meant to".
 4. Send `chat` frames for player utterances — you may send again without waiting
    for the previous reply; the server answers in order (§3.6). Render
    `chat_delta.text` incrementally, then replace with `chat_response.text` when
@@ -920,10 +932,11 @@ Run it on the same LAN to exercise the exact framing (connect → identify → c
 → print response; auto-replies to `action_request`). Note: `nc`/`telnet` cannot
 produce the binary length prefix, so use the Python client for manual checks.
 
-> **The reference client must be updated for v2** before it is useful again:
-> wrap the socket in TLS, send `protocol_version: 2`, persist and resend
-> `player_id` / `session_token`, and accumulate `chat_delta` frames. A v1
-> reference client is rejected at the `identified` step.
+> **Write the reference client against this document.** It needs to wrap the
+> socket in TLS, send `protocol_version: 2`, persist and resend
+> `player_id` / `session_token`, and accumulate `chat_delta` frames. One that
+> skips the credential round-trip is refused at the `identified` step, which
+> makes it useless as a test tool.
 
 ### Stub servers worth having
 
@@ -933,7 +946,7 @@ server never produces. Small stubs make them reproducible:
 | Stub behaviour | What it verifies on the client |
 |---|---|
 | Accepts TLS, never sends `identified` | Pending-utterance cap (`MaxPendingChats`, default 32); no unbounded growth |
-| Sends `identified` without `session_token` | v1 detection — loud failure, no silent downgrade |
+| Sends `identified` without `session_token` | Loud failure, no silent downgrade to an unauthenticated session |
 | Sends a few `chat_delta` then stops | Chat timeout fires; UI does not hang on "생각 중..." |
 | Streams `chat_delta` for >60 s then completes | Long generations are **not** timed out |
 | Floods frames as fast as possible | Inbound cap closes the connection, then reconnect |
