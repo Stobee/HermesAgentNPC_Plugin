@@ -93,7 +93,10 @@ f6c1a6e  docs: 검토 결과를 구현 계획서에 반영
 
 **없다.** 코드 변경은 전부 커밋되었다.
 
-`claude_code_prompt_ue5_client.md` 하나가 untracked 로 남아 있는데 원래부터 그랬던 파일이다(이번 작업과 무관).
+`claude_code_prompt_ue5_client.md`(v1 시절 작업 브리프)는 2026-07-29에 삭제되었다. 애초에
+untracked 였으므로 git 이력에는 남지 않는다. 이 파일을 근거로 참조하던
+`docs/superpowers/specs/2026-07-24-hermes-ue5-client-design.md`는 최초 설계 시점의
+기록이므로 그대로 둔다 — 지금의 근거 문서는 `ue5-socket-protocol.md` 하나다.
 
 ## 테스트 기준선
 

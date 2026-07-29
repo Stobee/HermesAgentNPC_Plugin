@@ -1,5 +1,6 @@
 #include "Transport/HermesSocketWorker.h"
 #include "Protocol/HermesFrameCodec.h"
+#include "HermesLog.h"
 #include "Sockets.h"
 #include "SocketSubsystem.h"
 #include "SocketTypes.h"
@@ -38,7 +39,7 @@ void FHermesSocketWorker::EnqueueOutbound(const FString& Json)
 	// "가장 오래된 것 버리기"는 성립하지 않는다.
 	if (OutboundCount.GetValue() >= Config.MaxOutboundQueueSize)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Hermes] outbound queue full (%d), dropping frame"),
+		UE_LOG(LogHermes, Warning, TEXT("outbound queue full (%d), dropping frame"),
 			Config.MaxOutboundQueueSize);
 		return;
 	}
@@ -187,8 +188,8 @@ bool FHermesSocketWorker::ReceiveAvailable()
 			// 프레이밍 위반과 같은 경로로 연결을 끊고 백오프 재연결에 맡긴다.
 			if (InboundCount.GetValue() >= Config.MaxInboundQueueSize)
 			{
-				UE_LOG(LogTemp, Warning,
-					TEXT("[Hermes] inbound queue overflow (%d), closing connection"),
+				UE_LOG(LogHermes, Warning,
+					TEXT("inbound queue overflow (%d), closing connection"),
 					Config.MaxInboundQueueSize);
 				return false;
 			}

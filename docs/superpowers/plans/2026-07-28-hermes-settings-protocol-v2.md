@@ -16,6 +16,17 @@
 - **테스트 매크로:** `IMPLEMENT_SIMPLE_AUTOMATION_TEST(F<Name>Test, "Hermes.<Category>.<Behavior>", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)`. 본문은 `bool F<Name>Test::RunTest(const FString& Parameters)`이고 마지막에 `return true;`.
 - **테스트 파일명:** 대상 코드와 같은 폴더에 `<Name>.spec.cpp`.
 - **주석은 한국어로 쓴다.** 기존 소스 전체가 한국어 주석이다.
+- **로그는 `LogHermes` 카테고리를 쓴다.** `LogTemp` 금지. 카테고리가 출처를 밝히므로 메시지에
+  `[Hermes]` 접두사를 붙이지 않는다. `#include "HermesLog.h"`.
+- **스펙상 불가능한 입력은 조용히 무시하지 않는다.** 프로토콜이 보장한다고 적힌 것이 어긋난 채
+  도착하면 반드시 `Warning` 이상으로 남긴다. 이 플러그인을 도입한 사람은 **자기가 만든 서버를
+  디버깅하는 사람**이고, 이 로그 한 줄이 그의 몇 시간을 아낀다. 조용히 넘기면 증상이 "서버가
+  틀렸다"가 아니라 "게임이 이상하다"로 나타나 원인 추적이 불가능해진다. 해당하는 지점:
+  - `identified`에 `session_token` 없음 (Task 10)
+  - `chat_delta`의 `id`가 진행 중인 턴과 다름 (Task 11)
+  - `chat` 응답이 끝내 오지 않음 (Task 13)
+  - 목록에 없는 에러 `code` (Task 13c)
+  - 종료성 에러로 재연결을 멈출 때 그 사유 (Task 13d)
 - **워커 스레드에서 `UObject`를 접근하지 않는다.** 설정은 게임 스레드에서 읽어 값 타입으로 복사해 넘긴다.
 - **`FHermesFrameCodec::MaxBodySize`(1 MiB)는 설정으로 열지 않는다.** 프로토콜 불변식이므로 컴파일 타임 상수로 유지한다.
 - **빌드 명령:**
@@ -37,6 +48,7 @@
 
 | 경로 (`Plugins/HermesAgentNPC/Source/HermesAgentNPC/` 기준) | 책임 |
 |---|---|
+| `HermesLog.h` / `.cpp` | 플러그인 전용 로그 카테고리 `LogHermes` |
 | `Settings/HermesSettings.h` / `.cpp` | 모든 설정의 단일 출처. 커맨드라인 오버라이드 해석 |
 | `Settings/HermesSettings.spec.cpp` | 오버라이드 계층 테스트 |
 | `Actions/HermesActionParams.h` / `.cpp` | 액션 파라미터 범위·유한성 검증 (순수) |

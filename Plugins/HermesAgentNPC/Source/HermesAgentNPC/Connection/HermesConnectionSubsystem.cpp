@@ -8,6 +8,7 @@
 #include "Actions/InventoryActionHandler.h"
 #include "Actions/ItemTransferActionHandler.h"
 #include "HermesSaveGame.h"
+#include "HermesLog.h"
 #include "Kismet/GameplayStatics.h"
 #include "Dom/JsonObject.h"
 #include "Settings/HermesSettings.h"
@@ -74,8 +75,8 @@ void UHermesConnectionSubsystem::RegisterNpc(AHermesNPCCharacter* Npc)
 	{
 		// 레벨에 NPC 를 둘 이상 배치했을 때 조용히 이상해지는 것을 막는다.
 		// 어느 쪽이 대상인지 로그로 분명히 남긴다.
-		UE_LOG(LogTemp, Warning,
-			TEXT("[Hermes] 활성 NPC 교체: %s -> %s. 이 플러그인은 NPC 한 명만 대상으로 한다."),
+		UE_LOG(LogHermes, Warning,
+			TEXT("활성 NPC 교체: %s -> %s. 이 플러그인은 NPC 한 명만 대상으로 한다."),
 			*ActiveNpc->GetName(), *Npc->GetName());
 	}
 
@@ -127,7 +128,7 @@ void UHermesConnectionSubsystem::SendChat(const FString& Text)
 		PendingChats, Json, GetDefault<UHermesSettings>()->MaxPendingChats);
 	if (Dropped > 0)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Hermes] pending chat overflow, dropped %d oldest"), Dropped);
+		UE_LOG(LogHermes, Warning, TEXT("pending chat overflow, dropped %d oldest"), Dropped);
 	}
 }
 
@@ -206,6 +207,6 @@ void UHermesConnectionSubsystem::HandleFrame(const TSharedPtr<FJsonObject>& Obj)
 		FString Code, Msg;
 		Obj->TryGetStringField(TEXT("code"), Code);
 		Obj->TryGetStringField(TEXT("message"), Msg);
-		UE_LOG(LogTemp, Warning, TEXT("[Hermes] error %s: %s"), *Code, *Msg);
+		UE_LOG(LogHermes, Warning, TEXT("server error %s: %s"), *Code, *Msg);
 	}
 }
