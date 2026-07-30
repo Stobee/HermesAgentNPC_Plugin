@@ -1,6 +1,6 @@
 # Hermes UE5 클라이언트 — 작업 진행 기록
 
-> 마지막 업데이트: 2026-07-29 (Task 10 서버 발급 신원 흐름 완료)
+> 마지막 업데이트: 2026-07-30 (Task 11 chat_delta 스트리밍 누적 표시 완료)
 > 브랜치: `master`
 > 계획 문서: `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md`
 
@@ -17,6 +17,7 @@
 - [x] **Task 18** `README.md` 및 `HermesAgentNPC_Documentation.html` 가이드/사양서 문서 설정 기반 및 안전 사양으로 최신화
 - [x] **Task 9** 프로토콜 v2 메시지 계층 구현 (`protocol_version: 2`, `session_token` AES 난독화 저장, `ParseIdentified`, `MakePing`) (`Hermes.Protocol.Messages.IdentifyV2`, `ParseIdentified`, `Ping` PASS)
 - [x] **Task 10** 서버 발급 신원 흐름 구현 (클라이언트 `FGuid::NewGuid()` 제거, `LoadCredentials`/`SaveCredentials` 난독화 보관 및 재접속 검증)
+- [x] **Task 11** `chat_delta` 스트리밍 응답 수신 및 누적 표시 (`OnChatDelta` 델리게이트, `id` 변경 시 버퍼 폐기 방어, `NativeTick` 틱당 1회 `SetText` 묶음). 자동화 테스트 추가 없음 — 위젯 상태라 Task 19 수동 검증 대상
 
 ## 자동화 테스트 결과 (총 16종 전원 PASS)
 
