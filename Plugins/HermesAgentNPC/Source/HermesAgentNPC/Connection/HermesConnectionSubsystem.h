@@ -5,6 +5,7 @@
 // TUniquePtr<FHermesSocketWorker> 멤버 때문에 완전한 타입이 필요하다.
 // UHT가 생성하는 생성자가 멤버 소멸자를 인스턴스화하므로 전방 선언으로는 부족하다.
 #include "Transport/HermesSocketWorker.h"
+#include "Connection/HermesPendingChats.h"
 #include "HermesConnectionSubsystem.generated.h"
 
 class UHermesActionDispatcher;
@@ -13,6 +14,7 @@ class AHermesNPCCharacter;
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnChatResponse, const FString&, const FString&);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnConnectionStateChanged, bool);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnChatDelta, const FString& /*Text*/, const FString& /*Id*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnChatFailed, const FString& /*Id*/, const FString& /*Reason*/);
 
 UCLASS()
 class HERMESAGENTNPC_API UHermesConnectionSubsystem : public UGameInstanceSubsystem
@@ -41,6 +43,11 @@ public:
 
 	/** 부분 응답. 표시용 힌트이며 정본은 OnChatResponse 가 전달하는 최종 텍스트다. */
 	FOnChatDelta OnChatDelta;
+
+	/** 발화가 응답 없이 만료되었거나 연결 단절로 폐기되었음을 알린다. */
+	FOnChatFailed OnChatFailed;
+
+	const FString& GetLastSentChatId() const { return LastSentChatId; }
 
 private:
 	bool Tick(float DeltaTime);              // 게임스레드 인바운드 소비
@@ -73,4 +80,9 @@ private:
 	double LastRecvTime = 0.0;
 	double LastSendTime = 0.0;
 	TArray<FString> PendingChats; // identified 전 보류
+
+	FHermesPendingChats InFlightChats;
+
+	/** 가장 최근에 보낸 발화 id. 위젯의 상관 규칙이 이 값을 기준으로 삼는다. */
+	FString LastSentChatId;
 };

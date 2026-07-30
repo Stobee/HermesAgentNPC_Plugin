@@ -15,8 +15,9 @@ void UHermesDialogueWidget::OpenFor(UHermesConnectionSubsystem* Conn)
 	if (Connection)
 	{
 		ChatHandle  = Connection->OnChatResponse.AddUObject(this, &UHermesDialogueWidget::HandleChatResponse);
-		DeltaHandle = Connection->OnChatDelta.AddUObject(this, &UHermesDialogueWidget::HandleChatDelta);
-		StateHandle = Connection->OnConnectionStateChanged.AddUObject(this, &UHermesDialogueWidget::HandleConnState);
+		DeltaHandle  = Connection->OnChatDelta.AddUObject(this, &UHermesDialogueWidget::HandleChatDelta);
+		FailedHandle = Connection->OnChatFailed.AddUObject(this, &UHermesDialogueWidget::HandleChatFailed);
+		StateHandle  = Connection->OnConnectionStateChanged.AddUObject(this, &UHermesDialogueWidget::HandleConnState);
 	}
 	AddToViewport();
 }
@@ -27,6 +28,7 @@ void UHermesDialogueWidget::NativeDestruct()
 	{
 		Connection->OnChatResponse.Remove(ChatHandle);
 		Connection->OnChatDelta.Remove(DeltaHandle);
+		Connection->OnChatFailed.Remove(FailedHandle);
 		Connection->OnConnectionStateChanged.Remove(StateHandle);
 	}
 	Super::NativeDestruct();
@@ -40,7 +42,6 @@ void UHermesDialogueWidget::OnSendClicked()
 	Connection->SendChat(Text);
 	InputBox->SetText(FText::GetEmpty());
 	StreamingText.Reset();
-	StreamingId.Reset();
 	// 아래에서 "생각 중..." 을 직접 넣으므로 갱신 플래그를 내린다. 남겨두면 다음
 	// 틱이 빈 StreamingText 로 덮어써 안내 문구가 사라진다.
 	bStreamingDirty = false;
@@ -52,20 +53,14 @@ void UHermesDialogueWidget::OnSendClicked()
 
 void UHermesDialogueWidget::HandleChatDelta(const FString& Text, const FString& Id)
 {
-	if (Id != StreamingId)
+	// 가장 최근에 보낸 발화의 응답만 화면에 반영한다. 늦게 도착한 이전
+	// 발화의 응답이 현재 화면을 덮어쓰지 않게 한다. 서버가 턴 직렬화
+	// (프로토콜 §3.6)를 어기고 두 턴을 교차 전송해도 다른 턴의 델타는 여기서
+	// 걸러지므로 두 답변이 뒤섞인 문자열이 남지 않는다(§4.9).
+	if (!Connection || Id != Connection->GetLastSentChatId())
 	{
-		// 정상 흐름에서는 발화 전송 때 비운 빈 StreamingId 에 새 턴의 id 가 처음
-		// 채워지는 경우뿐이다. 서버가 턴 직렬화(프로토콜 §3.6)를 어기고 두 턴을
-		// 교차 전송했다면 두 답변이 뒤섞인 문자열을 화면에 남기지 않도록 버퍼를
-		// 합치지 말고 버리고 새로 시작한다(§4.9).
-		if (!StreamingId.IsEmpty())
-		{
-			UE_LOG(LogHermes, Warning,
-				TEXT("chat_delta id changed mid-turn ('%s' -> '%s'); discarding accumulated text"),
-				*StreamingId, *Id);
-		}
-		StreamingText.Reset();
-		StreamingId = Id;
+		UE_LOG(LogHermes, Verbose, TEXT("ignoring stale chat_delta for %s"), *Id);
+		return;
 	}
 
 	// 누적만 하고 위젯은 건드리지 않는다. 한 틱에 델타가 여러 개 들어오면
@@ -78,9 +73,25 @@ void UHermesDialogueWidget::HandleChatDelta(const FString& Text, const FString& 
 
 void UHermesDialogueWidget::HandleChatResponse(const FString& Text, const FString& Id)
 {
+	if (!Connection || Id != Connection->GetLastSentChatId())
+	{
+		UE_LOG(LogHermes, Verbose, TEXT("ignoring stale chat_response for %s"), *Id);
+		return;
+	}
+
 	// 델타를 놓치거나 중복 처리했더라도 여기서 정본으로 교체되어 자기 교정된다.
 	StreamingText = Text;
-	StreamingId   = Id;
+	bStreamingDirty = true;
+}
+
+void UHermesDialogueWidget::HandleChatFailed(const FString& Id, const FString& Reason)
+{
+	if (!Connection || Id != Connection->GetLastSentChatId())
+	{
+		return;
+	}
+
+	StreamingText = TEXT("응답을 받지 못했습니다.");
 	bStreamingDirty = true;
 }
 

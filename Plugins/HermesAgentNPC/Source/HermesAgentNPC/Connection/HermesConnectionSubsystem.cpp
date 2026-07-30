@@ -162,6 +162,11 @@ void UHermesConnectionSubsystem::SendChat(const FString& Text)
 	const FString Id = FString::Printf(TEXT("c-%04d"), ++ChatCounter);
 	const FString Json = HermesJson::MakeChat(Id, Text);
 
+	// identified 이전이라 보류되더라도 추적은 시작한다. 서버에 닿지 못한
+	// 발화도 타임아웃으로 사용자에게 알려야 "생각 중..." 이 남지 않는다.
+	InFlightChats.Add(Id, FPlatformTime::Seconds());
+	LastSentChatId = Id;
+
 	if (bIdentified)
 	{
 		SendJson(Json);
@@ -201,6 +206,17 @@ bool UHermesConnectionSubsystem::Tick(float DeltaTime)
 	if (!bNow && bWasConnected)
 	{
 		bIdentified = false;
+
+		// 진행 중이던 발화를 모두 실패 처리한다. 재연결 후 서버가 이전 발화를
+		// 이어서 응답하더라도 그 id 는 추적 대상이 아니므로 위젯의 상관 규칙이 무시한다.
+		TArray<FString> Abandoned;
+		InFlightChats.CollectTimedOut(NowSeconds, 0.f, Abandoned);
+		for (const FString& Id : Abandoned)
+		{
+			OnChatFailed.Broadcast(Id, TEXT("disconnected"));
+		}
+		InFlightChats.Clear();
+
 		OnConnectionStateChanged.Broadcast(false);
 	}
 	bWasConnected = bNow;
@@ -235,6 +251,20 @@ bool UHermesConnectionSubsystem::Tick(float DeltaTime)
 				TEXT("peer silent for %.0fs, treating connection as dead"),
 				Settings->PeerTimeoutSeconds);
 			Worker->RequestReconnect();
+		}
+	}
+
+	// 응답 없는 발화를 만료시킨다. 델타가 오는 동안에는 Touch 로 갱신되므로
+	// 긴 생성은 살아남고 멈춘 생성만 잡힌다. 연결 여부와 무관하게 평가한다 —
+	// 연결이 끊긴 동안에도 발화는 만료되어야 한다.
+	{
+		TArray<FString> TimedOut;
+		InFlightChats.CollectTimedOut(NowSeconds,
+			GetDefault<UHermesSettings>()->ChatResponseTimeoutSeconds, TimedOut);
+		for (const FString& Id : TimedOut)
+		{
+			UE_LOG(LogHermes, Warning, TEXT("chat %s timed out"), *Id);
+			OnChatFailed.Broadcast(Id, TEXT("timeout"));
 		}
 	}
 	return true; // 계속 틱
@@ -285,6 +315,8 @@ void UHermesConnectionSubsystem::HandleFrame(const TSharedPtr<FJsonObject>& Obj)
 		FString Text, Id;
 		Obj->TryGetStringField(TEXT("text"), Text);
 		Obj->TryGetStringField(TEXT("id"), Id);
+		// 진행 신호. 이것이 긴 생성을 타임아웃에서 살려준다.
+		InFlightChats.Touch(Id, FPlatformTime::Seconds());
 		OnChatDelta.Broadcast(Text, Id);
 	}
 	else if (Type == HermesMsg::ChatResponse)
@@ -292,6 +324,7 @@ void UHermesConnectionSubsystem::HandleFrame(const TSharedPtr<FJsonObject>& Obj)
 		FString Text, Id;
 		Obj->TryGetStringField(TEXT("text"), Text);
 		Obj->TryGetStringField(TEXT("id"), Id);
+		InFlightChats.Remove(Id);
 		OnChatResponse.Broadcast(Text, Id);
 	}
 	else if (Type == HermesMsg::ActionRequest)
