@@ -8,23 +8,34 @@
 
 ## 지금 상태
 
-**Phase 1(Task 1~3), Phase 2(Task 4~8), Task 18 완료. Phase 3 진행 중 (Task 9~11 완료).**
+**Phase 1(Task 1~3), Phase 2(Task 4~8), Task 18 완료. Phase 3 진행 중 (Task 9~12 완료).**
 
 | Phase | 범위 | 상태 |
 |---|---|---|
 | 프로토콜 문서 | Task 17 (앞당김) | ✅ 완료 |
 | 1 — 설정 전역화 | Task 1~3 | ✅ **완료** |
 | 2 — 입력 강건성 | Task 4~8 | ✅ **완료** |
-| 3 — 프로토콜 v2 코드 | Task 9~13e | 🔶 **Task 9~11 완료**, Task 12 진행 예정 |
+| 3 — 프로토콜 v2 코드 | Task 9~13e | 🔶 **Task 9~12 완료**, Task 13 진행 예정 |
 | 4 — TLS | Task 14~16 | ⛔ 대기 |
 | 5 — 문서·검증 | Task 18~19 | 🔶 **Task 18 완료**, Task 19 통합 검증 대기 |
 
 ## ✅ 재개 지점 — 깨끗한 상태
 
-**작업 트리에 미커밋 코드 변경이 없다.** 빌드(exit 0) 및 테스트 **16종** 전원 PASS를 확인했다.
+**작업 트리에 미커밋 코드 변경이 없다.** 빌드(exit 0) 및 테스트 **17종** 전원 PASS를 확인했다.
 
 **다음 할 일:**
-- **Task 12 (연결 유지와 죽은 연결 탐지)**: `HermesLiveness` 순수 판정 모듈 신설, `KeepAlivePingIntervalSeconds` 주기 `ping` 송신, `PeerTimeoutSeconds` 초과 시 `RequestReconnect()`. 신규 테스트 `Hermes.Liveness.Evaluate` 1종이 늘어 17종이 된다.
+- **Task 13 (대화 응답 타임아웃과 상관)**: `SendChat()` 이 만든 `id`별 진행 중 발화 추적, `ChatResponseTimeoutSeconds` 안에 응답이 없으면 실패 처리. 이후 Task 13b(`action_event`), 13c~13e(에러 코드 정책·종료성 에러 재연결 정지·`error.id` 즉시 실패)가 이어진다.
+
+### ⚠️ Task 12 에서 생략된 항목 — 다시 시도하지 말 것
+
+**계획서 Task 12 Step 10(소켓 수준 `SO_KEEPALIVE`)은 UE 5.8 에 수단이 없어 생략했다.**
+`FSocket::SetKeepAlive` 는 존재하지 않으며 `Runtime/Sockets`·`Runtime/Networking` 어디에도
+`SO_KEEPALIVE` 가 노출되지 않는다. `ReleaseNativeSocket()` 은 public 이지만 소유권을 놓아
+소켓 정리 경로를 깨뜨리므로 우회로가 못 된다. **기능 공백은 없다** — OS 기본 keepalive 유휴
+시간은 7200초인데 수신 침묵 판정은 60초에 발동하므로 플래그가 첫 탐지자가 되는 일은 없었다.
+평문 경로 한정이며, Task 16 의 TLS 전송은 디스크립터를 직접 소유하므로 계획서에 `setsockopt`
+호출을 명시해 두었다. 관련 문서 6곳(계획서 Step 10·Task 14 두 곳·Task 16, 설계 스펙 §5.7,
+프로토콜 §9 Status, 서버 프롬프트 §8)을 이미 정정했다.
 
 ## 문서 위치
 
@@ -40,6 +51,8 @@
 ## 커밋 히스토리
 
 ```
+d3f8dab  feat: 클라이언트 keepalive ping 과 수신 침묵 기반 사망 판정 (Task 12 ✅)
+ea7f21f  docs: Task 11 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록 갱신
 3edc7be  feat: chat_delta 스트리밍 응답 수신 및 누적 표시 (Task 11 ✅)
 c3b7039  docs: Task 10 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록 갱신
 1ea234f  feat: 신원을 서버 발급으로 전환하고 클라이언트 UUID 생성 제거 (Task 10 ✅)
@@ -54,9 +67,9 @@ c3b7039  docs: Task 10 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록
 
 ## 테스트 기준선
 
-**2026-07-30 확인: 16종 전부 통과 (exit code 0).** Task 11은 자동화 테스트를 추가하지
+**2026-07-30 확인: 17종 전부 통과 (exit code 0).** Task 11은 자동화 테스트를 추가하지
 않는다 — `chat_delta` 처리는 델리게이트 브로드캐스트뿐이고 누적 표시는 위젯 상태라
-Task 19의 수동 검증에서 확인한다.
+Task 19의 수동 검증에서 확인한다. Task 12가 `Hermes.Liveness.Evaluate` 1종을 추가했다.
 
 ```
 Hermes.ActionParams.Coordinate
@@ -66,6 +79,7 @@ Hermes.Actions.Dispatcher.Rebind
 Hermes.Actions.Dispatcher.Route
 Hermes.Inventory.AddRemove
 Hermes.Inventory.AddSaturates
+Hermes.Liveness.Evaluate                ← Task 12
 Hermes.Protocol.FrameAccumulator.Parse
 Hermes.Protocol.FrameCodec.Encode
 Hermes.Protocol.Messages.Build

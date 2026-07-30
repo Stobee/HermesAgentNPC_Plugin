@@ -998,14 +998,19 @@ not configurable — it is part of the protocol.
 | `PeerTimeoutSeconds` | 60 s | Receive-silence before the connection is declared dead (§4.7). |
 | `ChatResponseTimeoutSeconds` | 60 s | Silence after `chat` before the turn is failed; any `chat_delta` resets it (§4.9). |
 
-> **Status:** only `ActionTimeoutSeconds` is enforced today. The client already
-> answers a server `ping` with `pong`, but the three keepalive and chat-timeout
-> keys are not consumed yet — it does not **initiate** pings, does not reap a
-> silent connection, and does not time out a `chat`. They land with the v2
-> protocol work. A server built to §4.7 and §4.9 is correct either way; it just
-> cannot rely on the client noticing a half-open connection in the meantime, so
-> **the server should run its own liveness check** rather than assume the client
-> will drop first.
+> **Status:** `ActionTimeoutSeconds`, `KeepAlivePingIntervalSeconds`, and
+> `PeerTimeoutSeconds` are enforced today. The client answers a server `ping`
+> with `pong`, **initiates** its own `ping` after that much send-silence, and
+> reaps a connection that has been receive-silent past `PeerTimeoutSeconds`.
+> `ChatResponseTimeoutSeconds` is not consumed yet — the client does not time out
+> a `chat` turn; that lands with the remaining v2 protocol work. A server built
+> to §4.7 and §4.9 is correct either way.
+>
+> Note that the client sets no socket-level `SO_KEEPALIVE` on the plaintext
+> path — UE 5.8 exposes no API for it — so liveness there rests entirely on the
+> application-level `ping` above. That detects a half-open connection within
+> `PeerTimeoutSeconds`, but **the server should still run its own liveness
+> check** rather than assume the client will always drop first.
 
 ### Reconnect backoff
 

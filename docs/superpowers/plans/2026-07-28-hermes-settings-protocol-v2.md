@@ -3066,15 +3066,27 @@ void UHermesConnectionSubsystem::HandleFrame(const TSharedPtr<FJsonObject>& Obj)
 	}
 ```
 
-- [ ] **Step 10: 소켓 수준 keepalive 활성화**
+- [x] ~~**Step 10: 소켓 수준 keepalive 활성화**~~ — **구현 불가로 생략 (2026-07-30 확인)**
 
-`Transport/HermesSocketWorker.cpp`의 `ConnectSocket()`에서 `Socket->SetNonBlocking(true);` **앞에** 추가한다.
-
-```cpp
-	// OS 기본 keepalive 주기는 보통 2시간이라 단독으로는 쓸모가 없지만,
-	// 애플리케이션 ping 이 놓치는 하위 계층 경로를 보완한다.
-	Socket->SetKeepAlive(true);
-```
+> **UE 5.8 에는 이 단계를 수행할 수단이 없다.** 이 계획서가 가정한 `FSocket::SetKeepAlive`
+> 는 존재하지 않는다. `Runtime/Sockets/Public/Sockets.h` 의 `FSocket` API 전체에 keepalive
+> 설정자가 없고, `Runtime/Sockets` 와 `Runtime/Networking` 어디에도 `SO_KEEPALIVE` 문자열이
+> 없다. 공개된 네이티브 핸들 접근자도 없다 — `ReleaseNativeSocket()` 은 public 이지만
+> 이름대로 소유권을 놓아버려(`Socket = INVALID_SOCKET`) 이후 `Close()` 가 `closesocket()`
+> 을 부르지 않고 OS 핸들이 누수된다. 옵션 하나를 켜는 대가로 소켓 정리 경로가 깨지므로
+> 쓸 수 없다.
+>
+> **기능 공백은 없다.** OS 기본 keepalive 유휴 시간은 Windows·Linux 모두 7200초인데 Step 8
+> 의 수신 침묵 판정은 60초에 발동한다. 플래그를 켰더라도 첫 탐지자가 되는 일은 없었다.
+> 의미 있게 만들려면 소켓별 주기 튜닝(`SIO_KEEPALIVE_VALS`, `TCP_KEEPIDLE`)까지 필요한데
+> 이 계획서는 그것을 명시하지 않았다 — 적힌 대로의 Step 10 은 애초에 무기력한 코드였다.
+> 또한 20초 주기 `ping` 이 연결을 유휴 상태로 두지 않으므로 NAT·미들박스 유휴 회수는
+> 2시간 keepalive 보다 더 잘 막힌다.
+>
+> **평문 경로 한정이다.** Task 16 의 TLS 전송은 `FSocket` 을 쓰지 않고 raw 디스크립터를
+> 직접 소유하므로 거기서는 `setsockopt(SO_KEEPALIVE)` 를 그대로 부를 수 있다. 설계 스펙
+> §5.7 이 의도한 "TLS 경로는 OpenSSL 이 소유한 소켓에 `SO_KEEPALIVE` 를 설정한다" 는
+> Task 16 에서 달성된다.
 
 - [ ] **Step 11: 전체 빌드 및 테스트**
 
@@ -3083,7 +3095,7 @@ void UHermesConnectionSubsystem::HandleFrame(const TSharedPtr<FJsonObject>& Obj)
 & "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Work\HermesAgentNPC\HermesAgentNPC.uproject" -ExecCmds="Automation RunTests Hermes; Quit" -unattended -nopause -nullrhi
 ```
 
-Expected: 빌드 성공, 테스트 16종 통과.
+Expected: 빌드 성공, 테스트 17종 통과 (기존 16 + `Hermes.Liveness.Evaluate`).
 
 - [ ] **Step 12: 커밋**
 
@@ -4102,9 +4114,8 @@ bool FHermesPlainTransport::Connect(const FHermesWorkerConfig& Config, const FIn
 		return false;
 	}
 
-	// OS 기본 keepalive 주기는 길지만, 애플리케이션 ping 이 놓치는
-	// 하위 계층 경로를 보완한다.
-	Socket->SetKeepAlive(true);
+	// 소켓 수준 keepalive 는 켜지 않는다 — UE 5.8 FSocket 에 설정자가 없다.
+	// Task 12 Step 10 참조. 생존 탐지는 애플리케이션 ping 이 담당한다.
 	Socket->SetNonBlocking(true); // 연결 후 논블로킹 수신으로 전환
 	return true;
 }
@@ -4284,7 +4295,7 @@ bool FHermesSocketWorker::ReceiveAvailable()
 
 `~FHermesSocketWorker()`의 `CloseSocket();` 은 그대로 두면 된다.
 
-> **Task 12 Step 10에서 넣은 `Socket->SetKeepAlive(true)` 는 이 교체로 워커에서 사라진다.** 같은 호출이 Step 3의 `FHermesPlainTransport::Connect()` 안에 이미 들어 있으므로 동작은 유지된다. 워커에 남겨두면 `Socket` 멤버가 없어져 컴파일되지 않는다.
+> **keepalive 관련 이동은 없다.** 이 주석은 원래 "Task 12 Step 10 에서 넣은 `Socket->SetKeepAlive(true)` 가 전송 계층으로 옮겨진다"고 적혀 있었으나, Step 10 은 UE 5.8 에 수단이 없어 생략되었으므로 워커에 옮길 호출 자체가 없다(Task 12 Step 10 의 생략 사유 참조). 찾지 말 것.
 
 - [ ] **Step 6: 빌드 및 테스트 (동작 불변 확인)**
 
@@ -4791,6 +4802,16 @@ bool FHermesTlsTransport::Connect(const FHermesWorkerConfig& Config, const FInte
 		{
 			Close();
 			return false;
+		}
+
+		// 소켓 수준 keepalive. 평문 경로(Task 12 Step 10)에서는 FSocket 에 설정자가
+		// 없어 생략했지만, 여기서는 디스크립터를 직접 소유하므로 그대로 켤 수 있다.
+		// OS 기본 주기(7200초)는 60초 수신 침묵 판정보다 훨씬 느려 단독으로는 쓸모가
+		// 없지만, 애플리케이션 ping 이 놓치는 하위 계층 경로를 보완한다.
+		{
+			int OptVal = 1;
+			setsockopt((SOCKET)NativeSocket, SOL_SOCKET, SO_KEEPALIVE,
+				(const char*)&OptVal, sizeof(OptVal));
 		}
 
 		SetSocketNonBlocking(NativeSocket);

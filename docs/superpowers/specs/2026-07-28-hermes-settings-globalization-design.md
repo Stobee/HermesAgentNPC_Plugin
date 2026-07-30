@@ -122,7 +122,9 @@ else PendingChats.Add(Json);   // 상한 없음
 
 **(a) 반열림(half-open) 연결을 탐지하지 못한다**
 
-소켓에 `SetKeepAlive` 설정이 없고, **클라이언트가 `ping`을 보내지 않는다.** `HermesConnectionSubsystem.cpp:146`은 서버가 보낸 ping에 pong으로 답할 뿐이다.
+소켓 수준 keepalive가 꺼져 있고, **클라이언트가 `ping`을 보내지 않는다.** `HermesConnectionSubsystem.cpp:146`은 서버가 보낸 ping에 pong으로 답할 뿐이다.
+
+> **2026-07-30 정정.** 이 문단은 원래 "소켓에 `SetKeepAlive` 설정이 없고"라고 적어 마치 UE가 제공하는 설정을 호출하지 않은 것처럼 읽혔다. 실제로는 **UE 5.8 `FSocket`에 keepalive 설정자가 아예 없다** — 즉 켤 방법이 없는 것이지 빼먹은 것이 아니다. 이 오해가 계획서 Task 12 Step 10 을 구현 불가능한 단계로 만들었다. 아래 §5.7 의 정정 노트를 함께 참조하라. `ping` 부재는 Task 12 에서 해결되었다.
 
 Wi-Fi 전환, NAT 타임아웃, 케이블 분리처럼 조용히 끊기는 경우 TCP는 알려주지 않는다. `bConnected`는 계속 `true`로 남고 실패는 **다음 송신 시점까지 미뤄진다.** 그런데 송신은 플레이어가 말을 걸 때 일어나므로, 재연결이 *"NPC에게 말을 거는 바로 그 순간"* 에 시작된다 — 가장 나쁜 타이밍이다.
 
@@ -743,7 +745,9 @@ namespace HermesLiveness
 
 연결이 성립하지 않은 동안에는 평가하지 않는다 — 재연결 대기 중에는 수신이 없는 것이 정상이다.
 
-**소켓 수준 keepalive도 함께 켠다.** 평문 경로는 `FSocket`의 keepalive 설정을, TLS 경로는 OpenSSL이 소유한 소켓에 `SO_KEEPALIVE`를 설정한다. OS 기본 keepalive 주기는 보통 2시간이라 단독으로는 쓸모가 없지만, 애플리케이션 ping이 놓치는 하위 계층 경로를 보완한다.
+**소켓 수준 keepalive는 TLS 경로에서만 켠다.** OpenSSL이 소유한 소켓에 `SO_KEEPALIVE`를 설정한다. OS 기본 keepalive 주기는 보통 2시간이라 단독으로는 쓸모가 없지만, 애플리케이션 ping이 놓치는 하위 계층 경로를 보완한다.
+
+> **2026-07-30 정정.** 이 문단은 원래 "평문 경로는 `FSocket`의 keepalive 설정을" 쓴다고 적혀 있었으나 **UE 5.8에는 그런 API가 없다.** `FSocket` 전체에 keepalive 설정자가 없고 `Runtime/Sockets`·`Runtime/Networking`에 `SO_KEEPALIVE` 문자열도 없다. 유일한 공개 네이티브 핸들 접근자 `ReleaseNativeSocket()`은 소유권을 놓아버려 소켓 정리 경로를 깨뜨리므로 쓸 수 없다. 평문 경로는 소켓 수준 keepalive 없이 애플리케이션 ping만으로 동작하며, 위 표(§5.7 완화 목록)의 "`PeerTimeout` 내 재연결" 보증은 수신 침묵 판정 단독으로 충족된다. TLS 경로는 디스크립터를 직접 소유하므로 영향이 없다.
 
 ### 5.8 대화 응답 타임아웃과 상관 — 1.5(b), (c)
 
