@@ -106,3 +106,53 @@ bool FHermesPendingChatsTest::RunTest(const FString& Parameters)
 
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHermesPendingChatsFailByIdTest,
+	"Hermes.PendingChats.FailById",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHermesPendingChatsFailByIdTest::RunTest(const FString& Parameters)
+{
+	const float Timeout = 60.f;
+
+	// 진행 중인 두 발화 중 하나의 id 로 실패시키면 그 턴만 사라지고
+	// 다른 턴은 살아 있다.
+	{
+		FHermesPendingChats P;
+		P.Add(TEXT("c-1"), 100.0);
+		P.Add(TEXT("c-2"), 100.0);
+
+		TestTrue(TEXT("known id reported"), P.FailById(TEXT("c-1")));
+		TestEqual(TEXT("only one removed"), P.Num(), 1);
+
+		// 실패 처리된 턴은 이후 타임아웃 수집에 다시 나오지 않는다.
+		TArray<FString> Out;
+		P.CollectTimedOut(1000.0, Timeout, Out);
+		TestEqual(TEXT("only survivor collected"), Out.Num(), 1);
+		if (Out.Num() == 1)
+		{
+			TestEqual(TEXT("survivor is c-2"), Out[0], TEXT("c-2"));
+		}
+	}
+
+	// 미지의 id 는 아무 일도 일으키지 않는다. 어느 턴인지 모르는 채로 아무거나
+	// 실패시키면 무관한 대화가 끊긴다.
+	{
+		FHermesPendingChats P;
+		P.Add(TEXT("c-1"), 100.0);
+
+		TestFalse(TEXT("unknown id not reported"), P.FailById(TEXT("no_such_turn")));
+		TestEqual(TEXT("nothing removed"), P.Num(), 1);
+	}
+
+	// 같은 id 를 두 번 실패시켜도 한 번만 보고된다.
+	{
+		FHermesPendingChats P;
+		P.Add(TEXT("c-1"), 100.0);
+
+		TestTrue(TEXT("first fail reported"), P.FailById(TEXT("c-1")));
+		TestFalse(TEXT("second fail not reported"), P.FailById(TEXT("c-1")));
+	}
+
+	return true;
+}

@@ -416,10 +416,19 @@ void UHermesConnectionSubsystem::ApplyErrorReaction(EHermesErrorReaction Reactio
 		break;
 
 	case EHermesErrorReaction::FailPendingTurn:
-		// id 기반 즉시 실패는 Task 13e 가 넣는다. 그때까지 해당 턴은
-		// ChatResponseTimeoutSeconds 로 만료된다.
 		UE_LOG(LogHermes, Warning,
 			TEXT("server error %s: %s (id '%s')"), *Code, *Message, *Id);
+
+		// id 가 없는 에러는 어떤 턴도 실패시키지 않는다 — 어느 턴인지 모르는 채로
+		// 아무거나 실패시키면 무관한 대화가 끊긴다. 그 경우 해당 턴은 평소대로
+		// ChatResponseTimeoutSeconds 로 만료된다.
+		//
+		// id 가 있으면 60초를 기다릴 이유가 없다. 즉시 실패시켜 UI 가
+		// "생각 중..." 에 머무는 시간을 없앤다.
+		if (!Id.IsEmpty() && InFlightChats.FailById(Id))
+		{
+			OnChatFailed.Broadcast(Id, Code);
+		}
 		break;
 	}
 }

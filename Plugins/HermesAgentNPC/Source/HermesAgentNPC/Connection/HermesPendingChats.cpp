@@ -20,6 +20,13 @@ void FHermesPendingChats::Remove(const FString& Id)
 	LastProgress.Remove(Id);
 }
 
+bool FHermesPendingChats::FailById(const FString& Id)
+{
+	// 추적 중이 아닌 id 는 아무 턴도 건드리지 않는다. 이미 완료·타임아웃된
+	// 발화에 대한 늦은 에러가 무관한 턴을 끊는 것을 막는다.
+	return LastProgress.Remove(Id) > 0;
+}
+
 void FHermesPendingChats::CollectTimedOut(double Now, float Timeout, TArray<FString>& Out)
 {
 	for (auto It = LastProgress.CreateIterator(); It; ++It)
