@@ -1,6 +1,7 @@
 #include "Connection/HermesConnectionSubsystem.h"
 #include "Connection/HermesUtil.h"
 #include "Connection/HermesLiveness.h"
+#include "Connection/HermesErrorPolicy.h"
 #include "HAL/PlatformTime.h"
 #include "Transport/HermesSocketWorker.h"
 #include "Protocol/HermesMessages.h"
@@ -351,9 +352,84 @@ void UHermesConnectionSubsystem::HandleFrame(const TSharedPtr<FJsonObject>& Obj)
 	}
 	else if (Type == HermesMsg::Error)
 	{
-		FString Code, Msg;
+		FString Code, Msg, ErrId;
 		Obj->TryGetStringField(TEXT("code"), Code);
 		Obj->TryGetStringField(TEXT("message"), Msg);
-		UE_LOG(LogHermes, Warning, TEXT("server error %s: %s"), *Code, *Msg);
+		Obj->TryGetStringField(TEXT("id"), ErrId);
+		ApplyErrorReaction(HermesErrorPolicy::React(Code), Code, Msg, ErrId);
 	}
+}
+
+void UHermesConnectionSubsystem::ApplyErrorReaction(EHermesErrorReaction Reaction,
+	const FString& Code, const FString& Message, const FString& Id)
+{
+	switch (Reaction)
+	{
+	case EHermesErrorReaction::LogOnly:
+		UE_LOG(LogHermes, Warning, TEXT("server error %s: %s"), *Code, *Message);
+		break;
+
+	case EHermesErrorReaction::ReIdentify:
+		// 연결은 살아 있다. 다시 신원을 밝히면 세션이 이어진다.
+		UE_LOG(LogHermes, Warning,
+			TEXT("server error %s: %s -- re-identifying"), *Code, *Message);
+		bIdentified = false;
+		SendIdentify();
+		break;
+
+	case EHermesErrorReaction::DiscardCredentials:
+		// 서버가 이 자격 증명을 거부했다. 들고 있으면 재접속마다 같은 거부를
+		// 반복하므로 버리고 신규 발급을 요청한다. 지운 상태를 저장까지 해야
+		// 프로세스를 재시작해도 같은 실패로 돌아가지 않는다.
+		UE_LOG(LogHermes, Warning,
+			TEXT("server rejected stored credentials (%s: %s); "
+			     "discarding them and asking for a new identity"), *Code, *Message);
+		PlayerId.Reset();
+		SessionToken.Reset();
+		SaveCredentials();
+		bIdentified = false;
+		if (Worker)
+		{
+			Worker->RequestReconnect();
+		}
+		break;
+
+	case EHermesErrorReaction::ReconnectWithBackoff:
+		UE_LOG(LogHermes, Warning,
+			TEXT("server error %s: %s -- reconnecting"), *Code, *Message);
+		if (Worker)
+		{
+			Worker->RequestReconnect();
+		}
+		break;
+
+	case EHermesErrorReaction::StopReconnect:
+		// 조용히 멈추면 원인 추적이 불가능하다. 사유와 재개 방법을 같이 남긴다.
+		UE_LOG(LogHermes, Error,
+			TEXT("fatal server error %s: %s -- stopping the reconnect loop. "
+			     "Retrying does not heal this; call Reconnect() to attempt it deliberately."),
+			*Code, *Message);
+		if (Worker)
+		{
+			Worker->SuspendReconnect();
+		}
+		break;
+
+	case EHermesErrorReaction::FailPendingTurn:
+		// id 기반 즉시 실패는 Task 13e 가 넣는다. 그때까지 해당 턴은
+		// ChatResponseTimeoutSeconds 로 만료된다.
+		UE_LOG(LogHermes, Warning,
+			TEXT("server error %s: %s (id '%s')"), *Code, *Message, *Id);
+		break;
+	}
+}
+
+void UHermesConnectionSubsystem::Reconnect()
+{
+	if (!Worker)
+	{
+		return;
+	}
+	UE_LOG(LogHermes, Log, TEXT("deliberate reconnect requested by game code"));
+	Worker->ResumeReconnect();
 }

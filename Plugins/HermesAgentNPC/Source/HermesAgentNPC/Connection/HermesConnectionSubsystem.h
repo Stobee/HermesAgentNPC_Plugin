@@ -10,6 +10,7 @@
 
 class UHermesActionDispatcher;
 class AHermesNPCCharacter;
+enum class EHermesErrorReaction : uint8;
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnChatResponse, const FString&, const FString&);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnConnectionStateChanged, bool);
@@ -29,6 +30,17 @@ public:
 	/** 장기 실행 액션의 완료/실패를 서버에 알린다. 액션 핸들러가 호출한다. */
 	void SendActionEvent(const FString& Id, bool bCompleted,
 	                     const TSharedPtr<class FJsonObject>& Result, const FString& Error);
+
+	/**
+	 * 종료성 에러로 멈춘 재연결 루프를 다시 돌린다. 게임이 **의도적으로** 다시
+	 * 붙을 때만 호출한다(예: 플레이어가 대화를 다시 시작). 프로토콜 §3.4 가
+	 * 세션 탈취 후의 재접속을 의도적 행위로 요구한다 — 자동 재시도로 되돌리면
+	 * 두 게임 인스턴스가 서로를 영원히 걷어낸다.
+	 */
+	void Reconnect();
+
+	/** 종료성 에러로 재연결이 멈춰 있는지. UI 가 상태를 보여줄 때 쓴다. */
+	bool IsReconnectSuspended() const { return Worker && Worker->IsReconnectSuspended(); }
 
 	/**
 	 * 이 연결이 대상으로 삼을 NPC 를 지정한다. 플러그인은 NPC 한 명만 다루므로
@@ -63,6 +75,10 @@ private:
 	void SaveCredentials();
 	void SendIdentify();
 	void FlushPendingChats();
+
+	/** error 프레임의 반응을 실행한다. 판정은 HermesErrorPolicy 가 한다. */
+	void ApplyErrorReaction(EHermesErrorReaction Reaction, const FString& Code,
+	                        const FString& Message, const FString& Id);
 
 	TUniquePtr<FHermesSocketWorker> Worker;
 	FTSTicker::FDelegateHandle TickHandle;

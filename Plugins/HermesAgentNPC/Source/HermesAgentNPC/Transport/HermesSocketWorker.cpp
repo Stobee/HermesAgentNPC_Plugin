@@ -58,6 +58,15 @@ bool FHermesSocketWorker::DequeueInbound(FString& OutJson)
 }
 void FHermesSocketWorker::RequestStop() { bStopRequested = true; }
 void FHermesSocketWorker::RequestReconnect() { bReconnectRequested = true; }
+void FHermesSocketWorker::SuspendReconnect() { bReconnectSuspended = true; }
+
+void FHermesSocketWorker::ResumeReconnect()
+{
+	// 정지 중에 쌓인 재연결 요청은 의미가 없다. 남겨두면 재개 직후 새로 맺은
+	// 연결을 곧바로 끊어 한 번을 헛돈다.
+	bReconnectRequested = false;
+	bReconnectSuspended = false;
+}
 void FHermesSocketWorker::Stop() { bStopRequested = true; }
 
 bool FHermesSocketWorker::ConnectSocket()
@@ -208,7 +217,9 @@ void FHermesSocketWorker::InterruptibleSleep(float Seconds)
 	// PIE 정지가 수 분간 멈출 수 있다.
 	constexpr float Slice = 0.1f;
 	float Remaining = Seconds;
-	while (Remaining > 0.f && !bStopRequested)
+	// 정지가 걸리면 남은 백오프를 더 기다릴 이유가 없다. 즉시 빠져나가 루프
+	// 상단의 정지 처리로 넘긴다.
+	while (Remaining > 0.f && !bStopRequested && !bReconnectSuspended)
 	{
 		const float Step = FMath::Min(Slice, Remaining);
 		FPlatformProcess::Sleep(Step);
@@ -223,6 +234,23 @@ uint32 FHermesSocketWorker::Run()
 
 	while (!bStopRequested)
 	{
+		// 종료성 에러로 정지되었다. 연결을 끊고 재개 요청까지 아무것도 하지 않는다.
+		//
+		// 스레드를 실제로 끝내지 않고 유휴로 두는 이유: 끝내면 ResumeReconnect()
+		// 가 스레드를 다시 만들어야 하고, 그 시점에 Thread 포인터를 게임 스레드와
+		// 종료 중인 워커가 함께 만지는 경쟁이 생긴다. 100ms 조각으로 자는 스레드
+		// 하나의 비용은 그 위험보다 싸다. 소멸자 경로(RequestStop → Kill)는
+		// bStopRequested 검사로 그대로 동작한다.
+		if (bReconnectSuspended)
+		{
+			if (bConnected)
+			{
+				CloseSocket();
+			}
+			FPlatformProcess::Sleep(0.1f);
+			continue;
+		}
+
 		if (!bConnected)
 		{
 			if (ConnectSocket())
