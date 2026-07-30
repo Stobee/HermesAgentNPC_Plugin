@@ -8,24 +8,25 @@
 
 ## 지금 상태
 
-**Phase 1(Task 1~3), Phase 2(Task 4~8), Task 18 완료. Phase 3 진행 중 (Task 9~13d 완료, 13d는 수동 확인 1건 미완).**
+**Phase 1~3 및 Task 18 완료. 다음은 Phase 4(TLS, Task 14~16).**
+Phase 3의 코드는 전부 들어갔고, 남은 것은 Task 13d의 수동 확인 1건이다(아래 참조).
 
 | Phase | 범위 | 상태 |
 |---|---|---|
 | 프로토콜 문서 | Task 17 (앞당김) | ✅ 완료 |
 | 1 — 설정 전역화 | Task 1~3 | ✅ **완료** |
 | 2 — 입력 강건성 | Task 4~8 | ✅ **완료** |
-| 3 — 프로토콜 v2 코드 | Task 9~13e | 🔶 **Task 9~13d 완료**, Task 13e 진행 예정 |
-| 4 — TLS | Task 14~16 | ⛔ 대기 |
+| 3 — 프로토콜 v2 코드 | Task 9~13e | ✅ **완료** (Task 13d 수동 확인 1건 미완) |
+| 4 — TLS | Task 14~16 | ⛔ **다음 차례** |
 | 5 — 문서·검증 | Task 18~19 | 🔶 **Task 18 완료**, Task 19 통합 검증 대기 |
 
 ## ✅ 재개 지점 — 깨끗한 상태
 
-**작업 트리에 미커밋 코드 변경이 없다.** 빌드(exit 0) 및 테스트 **20종** 전원 PASS를 확인했다.
+**작업 트리에 미커밋 코드 변경이 없다.** 빌드(exit 0) 및 테스트 **21종** 전원 PASS를 확인했다.
 
 **다음 할 일:**
-- **Task 13e (`error.id` 기반 진행 중 턴 즉시 실패)**: `FHermesPendingChats::FailById` 추가(테스트 `Hermes.PendingChats.FailById`), 반응이 `FailPendingTurn` 이고 프레임에 `id` 가 있을 때만 호출. **`id` 없는 에러는 어떤 턴도 실패시키지 않는다.** 배선 지점은 이미 만들어져 있다 — `ApplyErrorReaction()` 의 `FailPendingTurn` 분기가 현재 로그만 남긴다.
-- Task 13e가 Phase 3의 마지막이고 그다음은 Phase 4(TLS, Task 14~16)다.
+- **Task 14 (전송 계층 추상화 — 순수 리팩터링)**. Phase 4 원칙: 프레이밍(`FHermesFrameCodec`, `FFrameAccumulator`)과 큐·백오프·상한 로직은 **한 줄도 바뀌지 않는다.** 바이트를 어디로 읽고 쓰는지만 달라진다. Task 14가 경계를 만들고 Task 16이 그 뒤에 TLS를 끼운다.
+- **Task 14 착수 전 확인**: 계획서 Task 14 Step 3의 `FHermesPlainTransport::Connect()` 에서 `SetKeepAlive` 호출은 이미 제거했다(2026-07-30 정정). Task 16에는 raw 디스크립터에 `setsockopt(SO_KEEPALIVE)` 를 넣도록 명시해 두었다.
 
 ### ⚠️ Task 13d 미완 항목 — 수동 확인 (계획서 Step 5)
 
@@ -66,6 +67,8 @@ eviction war 가 없는지 확인하는 항목이다.
 ## 커밋 히스토리
 
 ```
+6b3cf8c  feat: error.id 기반 진행 중 턴 즉시 실패 (Task 13e ✅) — Phase 3 완료
+5f1b518  docs: Task 13d 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록 갱신
 532f6e3  feat: 종료성 에러 시 재연결 루프 정지 (Task 13d — 수동 확인 미완)
 e116f20  docs: Task 13c 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록 갱신
 c29d46c  feat: 에러 코드 반응 정책을 순수 함수로 분리 (Task 13c ✅)
@@ -90,7 +93,7 @@ c3b7039  docs: Task 10 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록
 
 ## 테스트 기준선
 
-**2026-07-30 확인: 20종 전부 통과 (exit code 0).** Task 11은 자동화 테스트를 추가하지
+**2026-07-30 확인: 21종 전부 통과 (exit code 0).** Task 11은 자동화 테스트를 추가하지
 않는다 — `chat_delta` 처리는 델리게이트 브로드캐스트뿐이고 누적 표시는 위젯 상태라
 Task 19의 수동 검증에서 확인한다. Task 12가 `Hermes.Liveness.Evaluate`, Task 13이
 `Hermes.PendingChats.Timeout`, Task 13b가 `Hermes.Protocol.Messages.ActionEvent` 를
@@ -98,7 +101,7 @@ Task 19의 수동 검증에서 확인한다. Task 12가 `Hermes.Liveness.Evaluat
 필요해 자동화 테스트가 없다 — Task 19의 수동 검증 대상이다. Task 13c가
 `Hermes.Connection.ErrorPolicy` 를 추가했다. Task 13d는 새 테스트를 추가하지 않는다 —
 정지 플래그는 워커 스레드와 실제 소켓이 얽혀 순수 판정으로 떼어낼 부분이 없고, 검증은
-계획서가 수동 확인으로 규정했다.
+계획서가 수동 확인으로 규정했다. Task 13e가 `Hermes.PendingChats.FailById` 를 추가했다.
 
 ```
 Hermes.ActionParams.Coordinate
@@ -110,6 +113,7 @@ Hermes.Connection.ErrorPolicy           ← Task 13c
 Hermes.Inventory.AddRemove
 Hermes.Inventory.AddSaturates
 Hermes.Liveness.Evaluate                ← Task 12
+Hermes.PendingChats.FailById            ← Task 13e
 Hermes.PendingChats.Timeout             ← Task 13
 Hermes.Protocol.FrameAccumulator.Parse
 Hermes.Protocol.FrameCodec.Encode

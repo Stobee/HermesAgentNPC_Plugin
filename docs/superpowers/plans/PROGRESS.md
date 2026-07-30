@@ -1,6 +1,6 @@
 # Hermes UE5 클라이언트 — 작업 진행 기록
 
-> 마지막 업데이트: 2026-07-30 (Task 13d 재연결 루프 정지 — 코드 완료, 수동 확인 미완)
+> 마지막 업데이트: 2026-07-30 (Task 13e 완료 — **Phase 3 종료**, 다음은 Phase 4 TLS)
 > 브랜치: `master`
 > 계획 문서: `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md`
 
@@ -29,7 +29,9 @@
 
 - [~] **Task 13d** 종료성 에러 시 재연결 루프 정지 (워커 `bReconnectSuspended`, `SuspendReconnect`/`ResumeReconnect`, 백오프 조각 sleep 즉시 이탈, 정지 사유·재개 방법 Error 로그, 의도적 재개용 `UHermesConnectionSubsystem::Reconnect()`). 계획서가 배정하지 않은 `ReIdentify`/`DiscardCredentials`/`ReconnectWithBackoff` 반응도 함께 배선 — 두지 않으면 프로토콜 §5의 `not_identified`·`not_authorized` 계약이 미구현으로 남는다. **코드 Step 1~4·6 완료, Step 5 스텁 서버 수동 확인 미완** (`Content/` 에 맵이 없어 PIE 불가 — HANDOFF.md 참조)
 
-## 자동화 테스트 결과 (총 20종 전원 PASS)
+- [x] **Task 13e** `error.id` 기반 진행 중 턴 즉시 실패 (`FHermesPendingChats::FailById` — 추적 중이던 발화만 제거하고 `true` 반환, 중복 실패는 `false`, `id` 없는 에러는 어떤 턴도 건드리지 않음) (`Hermes.PendingChats.FailById` PASS)
+
+## 자동화 테스트 결과 (총 21종 전원 PASS)
 
 - `Hermes.ActionParams.Coordinate` : PASS
 - `Hermes.ActionParams.ItemId` : PASS
@@ -40,6 +42,7 @@
 - `Hermes.Inventory.AddRemove` : PASS
 - `Hermes.Inventory.AddSaturates` : PASS
 - `Hermes.Liveness.Evaluate` : PASS
+- `Hermes.PendingChats.FailById` : PASS
 - `Hermes.PendingChats.Timeout` : PASS
 - `Hermes.Protocol.FrameAccumulator.Parse` : PASS
 - `Hermes.Protocol.FrameCodec.Encode` : PASS
@@ -51,4 +54,4 @@
 - `Hermes.RateLimiter.TokenBucket` : PASS
 - `Hermes.Settings.CommandLineOverride` : PASS
 - `Hermes.Util.PushBounded` : PASS
-- `EXIT CODE: 0` (20/20 PASS)
+- `EXIT CODE: 0` (21/21 PASS)
