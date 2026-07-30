@@ -1,6 +1,6 @@
 # Hermes UE5 클라이언트 — 작업 진행 기록
 
-> 마지막 업데이트: 2026-07-30 (Task 15 TLS 정책 결정 로직 완료)
+> 마지막 업데이트: 2026-07-30 (Task 16 OpenSSL 기반 TLS 전송 완료 — Phase 1~4 전체 구현 완료)
 > 브랜치: `master`
 > 계획 문서: `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md`
 
@@ -26,6 +26,7 @@
 - [x] **Task 13e** `error.id` 기반 진행 중 턴 실패 처리 (`Hermes.PendingChats.FailById` PASS)
 - [x] **Task 14** 전송 계층 `IHermesTransport` 추상화 및 `FHermesPlainTransport` 분리
 - [x] **Task 15** TLS 검증 정책 결정 순수 로직 분리 (`Hermes.TlsPolicy.*` PASS)
+- [x] **Task 16** OpenSSL 기반 TLS 전송 `FHermesTlsTransport` 구현 (SNI, SPKI 핀 검증, CA 검증, SO_KEEPALIVE)
 
 ## 자동화 테스트 결과 (총 24종 전원 PASS)
 
