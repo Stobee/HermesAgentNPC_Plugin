@@ -27,6 +27,29 @@
   - 서버 측 준비물 및 연동 규격: `plugin-integration-guide.md`, `HermesServer_SetupChecklist.html`, `claude_code_prompt_hermes_server.md`
   - 수동 검증 스텁 서버: `docs/testing/hermes_stub_server.py`
   - 수동 검증 환경 구성 지침: `docs/testing/manual-verification-setup.md`
+  - **검증용 샘플 에셋이 저장소에 들어왔다** (2026-07-30). 클론 직후 PIE 가 바로 뜬다.
+    `L_HermesTest`, `BP_TestMode`, `BP_HermesTestPlayer`, `IA_Interact`, `IMC_Default`
+
+## 이 프로젝트의 위치
+
+플러그인은 **별도로 패키징해 내보낸다.** 이 저장소는 그 플러그인의 정상 구동을
+시연하는 **샘플 프로젝트**다. 따라서 두 Content 폴더의 성격이 다르다.
+
+| 위치 | 성격 |
+|---|---|
+| `Plugins/HermesAgentNPC/Content/` | 패키징에 실려 나간다. 검증 편의용 설정을 넣지 말 것 |
+| `Content/` | 샘플에만 남는다. 데모용 메쉬·입력·레벨은 여기에 둔다 |
+
+> 실제로 `BP_HermesNPC` 에 붙어 있던 검증용 `SkeletalCube` 메쉬를 플러그인에서 빼고
+> 샘플 레벨의 인스턴스로 옮겼다(`cf09bca`). 같은 실수를 반복하지 말 것.
+
+## 남은 확인 (PIE 필요)
+
+에셋 정합성은 확인했으나 **에디터를 띄워야만 알 수 있는 것이 하나 남았다.**
+
+- 내비메시가 `move_to` 스텁 좌표 `(500, 500, 100)` 을 실제로 덮는지.
+  PIE 에서 `P` 키로 초록 내비메시를 확인한다. 덮지 않으면 볼륨을 키우거나
+  `docs/testing/hermes_stub_server.py` 의 좌표를 레벨에 맞게 고친다.
 
 ## 문서 위치
 
