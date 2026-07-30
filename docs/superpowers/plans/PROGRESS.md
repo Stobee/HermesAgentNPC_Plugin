@@ -1,6 +1,6 @@
 # Hermes UE5 클라이언트 — 작업 진행 기록
 
-> 마지막 업데이트: 2026-07-30 (Task 12 keepalive ping·사망 판정 완료)
+> 마지막 업데이트: 2026-07-30 (Task 13 대화 응답 타임아웃·발화 id 상관 완료)
 > 브랜치: `master`
 > 계획 문서: `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md`
 
@@ -21,7 +21,9 @@
 
 - [x] **Task 12** 연결 유지와 죽은 연결 탐지 (`HermesLiveness::Evaluate` 시간 주입형 순수 판정, 송신 침묵 20초 시 `ping`, 수신 침묵 60초 시 `RequestReconnect()`, `PeerTimeout < PingInterval*2` 경고) (`Hermes.Liveness.Evaluate` PASS). **Step 10(소켓 `SO_KEEPALIVE`)은 UE 5.8 미지원으로 생략** — 상세 사유는 HANDOFF.md 및 계획서 Task 12 Step 10 참조
 
-## 자동화 테스트 결과 (총 17종 전원 PASS)
+- [x] **Task 13** 대화 응답 타임아웃과 발화 `id` 상관 (`FHermesPendingChats` 시간 주입형 추적기, 델타 `Touch` 로 긴 생성 보호, 만료 시 `OnChatFailed` 통지, 연결 단절 시 진행 중 발화 일괄 실패, 위젯은 `GetLastSentChatId()` 와 일치하는 델타·응답만 반영) (`Hermes.PendingChats.Timeout` PASS). Task 11의 `StreamingId` 방어는 더 강한 상관 규칙으로 대체되어 제거
+
+## 자동화 테스트 결과 (총 18종 전원 PASS)
 
 - `Hermes.ActionParams.Coordinate` : PASS
 - `Hermes.ActionParams.ItemId` : PASS
@@ -31,6 +33,7 @@
 - `Hermes.Inventory.AddRemove` : PASS
 - `Hermes.Inventory.AddSaturates` : PASS
 - `Hermes.Liveness.Evaluate` : PASS
+- `Hermes.PendingChats.Timeout` : PASS
 - `Hermes.Protocol.FrameAccumulator.Parse` : PASS
 - `Hermes.Protocol.FrameCodec.Encode` : PASS
 - `Hermes.Protocol.Messages.Build` : PASS
@@ -40,4 +43,4 @@
 - `Hermes.RateLimiter.TokenBucket` : PASS
 - `Hermes.Settings.CommandLineOverride` : PASS
 - `Hermes.Util.PushBounded` : PASS
-- `EXIT CODE: 0` (17/17 PASS)
+- `EXIT CODE: 0` (18/18 PASS)

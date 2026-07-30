@@ -3582,7 +3582,7 @@ void UHermesDialogueWidget::HandleChatFailed(const FString& Id, const FString& R
 & "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Work\HermesAgentNPC\HermesAgentNPC.uproject" -ExecCmds="Automation RunTests Hermes; Quit" -unattended -nopause -nullrhi
 ```
 
-Expected: 빌드 성공, 테스트 17종 통과.
+Expected: 빌드 성공, 테스트 18종 통과 (기존 17 + `Hermes.PendingChats.Timeout`).
 
 - [ ] **Step 13: 커밋**
 
