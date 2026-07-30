@@ -6,8 +6,8 @@
 #include "Containers/Queue.h"
 #include "Protocol/HermesFrameCodec.h"
 #include "Transport/HermesWorkerConfig.h"
+#include "Transport/IHermesTransport.h"
 
-class FSocket;
 class FRunnableThread;
 
 /**
@@ -57,7 +57,7 @@ private:
 
 	FHermesWorkerConfig Config;
 
-	FSocket* Socket = nullptr;
+	TUniquePtr<IHermesTransport> Transport;
 	FRunnableThread* Thread = nullptr;
 	FFrameAccumulator Accumulator;
 

@@ -1,7 +1,7 @@
 #include "Transport/HermesSocketWorker.h"
 #include "Protocol/HermesFrameCodec.h"
 #include "HermesLog.h"
-#include "Sockets.h"
+#include "Transport/HermesPlainTransport.h"
 #include "SocketSubsystem.h"
 #include "SocketTypes.h"
 #include "IPAddress.h"
@@ -102,26 +102,15 @@ bool FHermesSocketWorker::ConnectSocket()
 	TSharedRef<FInternetAddr> InetAddr = Chosen->Address->Clone();
 	InetAddr->SetPort(Config.Port);
 
-	// 소켓은 선택된 주소의 프로토콜을 따라야 한다.
-	// FTcpSocketBuilder 는 FIPv4Endpoint 에서 프로토콜을 유도하므로 구조적으로
-	// IPv4 전용이다. IPv6 폴백을 지원하려면 CreateSocket 을 직접 불러야 한다.
-	Socket = SS->CreateSocket(NAME_Stream, TEXT("HermesClient"),
-		Chosen->Address->GetProtocolType());
-	if (!Socket)
+	// 소켓 생성·연결은 전송 구현이 담당한다. 이 워커는 바이트를 어디로 읽고
+	// 쓰는지 모르는 상태로 남아 프레이밍·큐·백오프만 다룬다.
+	Transport = MakeUnique<FHermesPlainTransport>();
+	if (!Transport->Connect(Config, *InetAddr))
 	{
+		Transport.Reset();
 		return false;
 	}
 
-	// 빌더의 AsBlocking() 과 동일하게 맞춘다. 연결 후 논블로킹으로 전환한다.
-	Socket->SetNonBlocking(false);
-
-	if (!Socket->Connect(*InetAddr))
-	{
-		CloseSocket();
-		return false;
-	}
-
-	Socket->SetNonBlocking(true);      // 연결 후 논블로킹 수신으로 전환
 	Accumulator = FFrameAccumulator(); // 새 연결마다 파서 리셋
 	return true;
 }
@@ -129,14 +118,10 @@ bool FHermesSocketWorker::ConnectSocket()
 void FHermesSocketWorker::CloseSocket()
 {
 	bConnected = false;
-	if (Socket)
+	if (Transport)
 	{
-		Socket->Close();
-		if (ISocketSubsystem* SS = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM))
-		{
-			SS->DestroySocket(Socket);
-		}
-		Socket = nullptr;
+		Transport->Close();
+		Transport.Reset();
 	}
 }
 
@@ -154,8 +139,8 @@ bool FHermesSocketWorker::SendAllPending()
 		int32 Total = 0;
 		while (Total < Bytes.Num())
 		{
-			int32 Sent = 0;
-			if (!Socket->Send(Bytes.GetData() + Total, Bytes.Num() - Total, Sent) || Sent < 0)
+			const int32 Sent = Transport->Send(Bytes.GetData() + Total, Bytes.Num() - Total);
+			if (Sent < 0)
 			{
 				return false; // 송신 실패 → 재연결
 			}
@@ -174,14 +159,14 @@ bool FHermesSocketWorker::ReceiveAvailable()
 {
 	uint8 Buf[4096];
 	uint32 Pending = 0;
-	while (Socket->HasPendingData(Pending))
+	while (Transport->HasPendingData(Pending))
 	{
-		int32 Read = 0;
-		if (!Socket->Recv(Buf, sizeof(Buf), Read))
+		const int32 Read = Transport->Recv(Buf, sizeof(Buf));
+		if (Read < 0)
 		{
 			return false; // 수신 에러 → 재연결
 		}
-		if (Read <= 0)
+		if (Read == 0)
 		{
 			break;
 		}
