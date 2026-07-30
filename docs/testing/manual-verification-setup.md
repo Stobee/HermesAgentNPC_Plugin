@@ -69,10 +69,20 @@ C++ 가 `SendButton->OnClicked` 를 직접 구독하므로 **블루프린트에�
 | `Dialogue Widget Class` | `WBP_HermesDialogue` | **비우면 `Interact()` 가 조용히 아무것도 안 한다** |
 | `Auto Register As Active Npc` | `true` | 레벨에 NPC 를 하나만 둘 것이므로 켠다 |
 
-- 메시는 아무거나(엔진 기본 `SKM_Quinn` 등). 이동이 보이기만 하면 된다.
 - `AIControllerClass` 와 `AutoPossessAI` 는 C++ 생성자가 이미 설정한다
   (`AHermesNPCAIController`, `PlacedInWorldOrSpawned`). **건드리지 않는다.**
 - `Capsule` 이 바닥을 뚫지 않게 배치 높이만 맞춘다.
+
+> **메쉬는 필요 없다.** 플러그인 소스 전체에 메쉬 참조가 없다. 이동은 `CapsuleComponent` +
+> `CharacterMovementComponent`(둘 다 `ACharacter` 기본 제공)로 동작하고 내비게이션도 캡슐
+> 기준이며, `eta_seconds` 는 `GetCharacterMovement()->GetMaxSpeed()` 를 쓴다.
+>
+> 다만 **메쉬가 없으면 이동을 눈으로 볼 수 없다.** `move_to` 의 실제 증거는 스텁 콘솔의
+> `action_event {completed, arrived:true}` 이고 그것이 육안 확인보다 확실하지만, "엉뚱한
+> 곳으로 갔다" 와 "아예 안 갔다" 를 구분하려면 보이는 편이 낫다.
+>
+> 그럴 때는 **스켈레탈 메쉬가 아니라 Static Mesh(Cube) 컴포넌트 하나**를 붙인다. AnimBP 가
+> 필요 없어 T-포즈 문제도, 애님 에셋 준비도 없다. 캡슐에 큐브를 붙이고 스케일만 줄이면 된다.
 
 > 레벨에 이 클래스 액터를 **둘 이상** 놓으려면 하나만 `Auto Register` 를 켜고 나머지는
 > 꺼야 한다. 플러그인은 NPC 한 명만 다루며, 여럿이 등록하면
@@ -81,6 +91,11 @@ C++ 가 `SendButton->OnClicked` 를 직접 구독하므로 **블루프린트에�
 ### 1.3 `BP_HermesTestPlayer` — 플레이어
 
 기본 3인칭 템플릿 폰이면 충분하다. **한 가지만 추가한다: `Interact()` 를 부를 입력.**
+
+플러그인이 플레이어에게 요구하는 것은 `UGameplayStatics::GetPlayerPawn(this, 0)` 이
+**존재하고 위치를 갖는 것** 뿐이다(`follow_player` 가 그 위치를 추적한다). 여기도 메쉬는
+필요 없다. 다만 **카메라 컴포넌트는 있는 편이 낫다** — 없으면 폰의 눈높이 시점으로 떨어져
+조작이 불편하다. 3인칭 템플릿 폰을 쓰거나 SpringArm + Camera 를 붙인다.
 
 `AHermesNPCCharacter::Interact()` 는 `BlueprintCallable` 이지만 **아무도 부르지 않는다.**
 호출 경로를 직접 만들어야 대화창이 열린다. 가장 간단한 방법:
@@ -92,6 +107,11 @@ Enhanced Input Action (IA_Interact, 예: E 키)
 ```
 
 거리 검사가 필요하면 `Get Distance To` 로 게이트를 걸어도 되지만, 검증용으로는 없어도 된다.
+
+> **Enhanced Input 함정.** Input Action 을 만들고 이벤트를 연결해도, **Input Mapping Context 를
+> 등록하지 않으면 이벤트가 영영 발동하지 않는다.** 폰이나 플레이어 컨트롤러의 `BeginPlay` 에서
+> `Get Player Controller` → `Get Enhanced Input Local Player Subsystem` → `Add Mapping Context`
+> 를 호출해야 한다. 대화창이 안 열릴 때 가장 먼저 볼 곳이다.
 
 > `BecomeActiveHermesNpc()` 도 `BlueprintCallable` 이다. 여러 NPC 를 두고 대상 전환을
 > 시험하려면 이것도 입력에 걸어 둔다.
@@ -281,7 +301,9 @@ Task 11~13e 로 들어간 것들이다. 각 항목의 시나리오와 기대 결
 
 | 증상 | 원인 |
 |---|---|
-| 대화창이 안 열린다 | `BP_HermesNPC` 의 `Dialogue Widget Class` 가 비어 있다. 또는 `Interact()` 를 부르는 입력이 없다 |
+| 대화창이 안 열린다 | `BP_HermesNPC` 의 `Dialogue Widget Class` 가 비어 있다. 또는 `Interact()` 를 부르는 입력이 없다. 또는 **Input Mapping Context 를 등록하지 않았다**(§1.3) |
+| NPC 가 안 보인다 | 정상이다. 메쉬는 필수가 아니다. 보고 싶으면 Static Mesh(Cube) 컴포넌트를 붙인다(§1.2) |
+| 내비메시가 있는데 `path blocked` | NPC **스폰 지점**이 내비메시를 벗어나 있다. 목표 좌표만 덮여도 부족하다 |
 | 창은 열리는데 입력·버튼이 죽어 있다 | 위젯 변수명이 `InputBox`/`DialogueText`/`SendButton` 과 다르다. 또는 `Is Variable` 이 꺼져 있다 |
 | 한 번 눌렀는데 두 번 전송된다 | 블루프린트에서 `SendButton` 클릭을 따로 연결했다. C++ 가 이미 구독한다 |
 | `move_to` 가 항상 `path blocked` | `NavMeshBoundsVolume` 이 없거나 목표 좌표를 덮지 않는다 |
