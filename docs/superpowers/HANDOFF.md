@@ -8,14 +8,14 @@
 
 ## 지금 상태
 
-**Phase 1(Task 1~3), Phase 2(Task 4~8), Task 18 완료. Phase 3 진행 중 (Task 9~13c 완료).**
+**Phase 1(Task 1~3), Phase 2(Task 4~8), Task 18 완료. Phase 3 진행 중 (Task 9~13d 완료, 13d는 수동 확인 1건 미완).**
 
 | Phase | 범위 | 상태 |
 |---|---|---|
 | 프로토콜 문서 | Task 17 (앞당김) | ✅ 완료 |
 | 1 — 설정 전역화 | Task 1~3 | ✅ **완료** |
 | 2 — 입력 강건성 | Task 4~8 | ✅ **완료** |
-| 3 — 프로토콜 v2 코드 | Task 9~13e | 🔶 **Task 9~13c 완료**, Task 13d 진행 예정 |
+| 3 — 프로토콜 v2 코드 | Task 9~13e | 🔶 **Task 9~13d 완료**, Task 13e 진행 예정 |
 | 4 — TLS | Task 14~16 | ⛔ 대기 |
 | 5 — 문서·검증 | Task 18~19 | 🔶 **Task 18 완료**, Task 19 통합 검증 대기 |
 
@@ -24,10 +24,22 @@
 **작업 트리에 미커밋 코드 변경이 없다.** 빌드(exit 0) 및 테스트 **20종** 전원 PASS를 확인했다.
 
 **다음 할 일:**
-- **Task 13d (종료성 에러 시 재연결 루프 정지)**: 워커에 `bReconnectSuspended`(`FThreadSafeBool`) 추가, `HermesErrorPolicy::React` 가 `StopReconnect` 면 `SuspendReconnect()` 호출 + 사유 로그, 의도적 재개용 `Reconnect()` 공개. **Step 5에 수동 확인이 있다** — 스텁 서버로 `session_taken_over` 후 재연결이 멈추는지, 두 클라이언트 간 eviction war 가 없는지 확인.
-- 이어서 **Task 13e** (`error.id` 기반 턴 즉시 실패, `FHermesPendingChats::FailById`). 이 둘이 Phase 3의 마지막이고 그다음은 Phase 4(TLS, Task 14~16)다.
+- **Task 13e (`error.id` 기반 진행 중 턴 즉시 실패)**: `FHermesPendingChats::FailById` 추가(테스트 `Hermes.PendingChats.FailById`), 반응이 `FailPendingTurn` 이고 프레임에 `id` 가 있을 때만 호출. **`id` 없는 에러는 어떤 턴도 실패시키지 않는다.** 배선 지점은 이미 만들어져 있다 — `ApplyErrorReaction()` 의 `FailPendingTurn` 분기가 현재 로그만 남긴다.
+- Task 13e가 Phase 3의 마지막이고 그다음은 Phase 4(TLS, Task 14~16)다.
 
-> **Task 13c는 정책 함수만 만들고 배선하지 않았다.** `EHermesErrorReaction` 의 `StopReconnect` 는 Task 13d, `FailPendingTurn` 은 Task 13e 가 소비한다. 현재 `HandleFrame` 의 `error` 분기는 여전히 경고 로그만 남긴다.
+### ⚠️ Task 13d 미완 항목 — 수동 확인 (계획서 Step 5)
+
+**스텁 서버 수동 확인을 수행하지 못했다.** `session_taken_over` 를 보내고 닫는 스텁 서버에
+접속해 (1) 로그에 사유가 남고 재연결 시도가 멈추는지, (2) 두 클라이언트를 동시에 띄워
+eviction war 가 없는지 확인하는 항목이다.
+
+**막힌 이유: `Content/` 에 `.gitkeep` 하나뿐이고 맵·에셋이 없어 PIE 를 띄울 수 없다.**
+(에디터 기동 로그의 `Can't find file '.../Content/Maps/SampleMap.umap'` 경고가 같은 원인이다.)
+**이 제약은 Task 19 통합 검증 전체에도 그대로 걸린다** — 수동 검증 항목을 진행하려면 먼저
+테스트용 맵과 NPC·위젯 블루프린트를 만들어야 한다. Task 19 착수 전에 이 준비를 별도 항목으로
+계획에 넣을 것.
+
+코드 경로(Step 1~4, 6)는 완료·빌드·회귀 테스트를 통과했다.
 
 ### ⚠️ Task 12 에서 생략된 항목 — 다시 시도하지 말 것
 
@@ -54,6 +66,8 @@
 ## 커밋 히스토리
 
 ```
+532f6e3  feat: 종료성 에러 시 재연결 루프 정지 (Task 13d — 수동 확인 미완)
+e116f20  docs: Task 13c 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록 갱신
 c29d46c  feat: 에러 코드 반응 정책을 순수 함수로 분리 (Task 13c ✅)
 ad5fee2  docs: Task 13b 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록 갱신
 1522937  feat: action_event 로 move_to 완료를 비동기 통지 (Task 13b ✅)
@@ -82,7 +96,9 @@ Task 19의 수동 검증에서 확인한다. Task 12가 `Hermes.Liveness.Evaluat
 `Hermes.PendingChats.Timeout`, Task 13b가 `Hermes.Protocol.Messages.ActionEvent` 를
 추가했다. Task 13b의 `MoveToActionHandler` 두 단계 응답은 AI 컨트롤러와 네비게이션이
 필요해 자동화 테스트가 없다 — Task 19의 수동 검증 대상이다. Task 13c가
-`Hermes.Connection.ErrorPolicy` 를 추가했다.
+`Hermes.Connection.ErrorPolicy` 를 추가했다. Task 13d는 새 테스트를 추가하지 않는다 —
+정지 플래그는 워커 스레드와 실제 소켓이 얽혀 순수 판정으로 떼어낼 부분이 없고, 검증은
+계획서가 수동 확인으로 규정했다.
 
 ```
 Hermes.ActionParams.Coordinate

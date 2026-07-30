@@ -1,6 +1,6 @@
 # Hermes UE5 클라이언트 — 작업 진행 기록
 
-> 마지막 업데이트: 2026-07-30 (Task 13c 에러 코드 반응 정책 완료)
+> 마지막 업데이트: 2026-07-30 (Task 13d 재연결 루프 정지 — 코드 완료, 수동 확인 미완)
 > 브랜치: `master`
 > 계획 문서: `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md`
 
@@ -26,6 +26,8 @@
 - [x] **Task 13b** `action_event` 로 `move_to` 완료를 비동기 통지 (`MakeActionEvent`, `SendActionEvent`, `ReceiveMoveCompleted` 델리게이트, `action_result` 는 `{started, eta_seconds}` 로 접수만 알림) (`Hermes.Protocol.Messages.ActionEvent` PASS). 계획서에 없던 `AlreadyAtGoal` 경로를 추가 처리 — 완료 콜백이 `MoveToLocation` 안에서 동기로 끝나 델리게이트로 잡을 수 없다
 
 - [x] **Task 13c** 에러 코드 반응 정책을 순수 함수로 분리 (`EHermesErrorReaction`, `HermesErrorPolicy::React`, 프로토콜 §5의 10개 코드 전부 + 빈 문자열·미지 코드가 `LogOnly` 로 떨어지는지 검증) (`Hermes.Connection.ErrorPolicy` PASS). **배선 없음** — `StopReconnect` 는 Task 13d, `FailPendingTurn` 은 Task 13e 가 소비
+
+- [~] **Task 13d** 종료성 에러 시 재연결 루프 정지 (워커 `bReconnectSuspended`, `SuspendReconnect`/`ResumeReconnect`, 백오프 조각 sleep 즉시 이탈, 정지 사유·재개 방법 Error 로그, 의도적 재개용 `UHermesConnectionSubsystem::Reconnect()`). 계획서가 배정하지 않은 `ReIdentify`/`DiscardCredentials`/`ReconnectWithBackoff` 반응도 함께 배선 — 두지 않으면 프로토콜 §5의 `not_identified`·`not_authorized` 계약이 미구현으로 남는다. **코드 Step 1~4·6 완료, Step 5 스텁 서버 수동 확인 미완** (`Content/` 에 맵이 없어 PIE 불가 — HANDOFF.md 참조)
 
 ## 자동화 테스트 결과 (총 20종 전원 PASS)
 
