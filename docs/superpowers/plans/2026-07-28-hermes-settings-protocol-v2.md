@@ -4312,7 +4312,7 @@ bool FHermesSocketWorker::ReceiveAvailable()
 & "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Work\HermesAgentNPC\HermesAgentNPC.uproject" -ExecCmds="Automation RunTests Hermes; Quit" -unattended -nopause -nullrhi
 ```
 
-Expected: 빌드 성공, 테스트 17종 통과. **하나라도 깨지면 리팩터링에서 동작이 바뀐 것이므로 되돌려 원인을 찾는다.**
+Expected: 빌드 성공, 테스트 21종 통과(리팩터링이므로 태스크 전과 **같은 수**). **하나라도 깨지면 리팩터링에서 동작이 바뀐 것이므로 되돌려 원인을 찾는다.**
 
 - [ ] **Step 7: 커밋**
 

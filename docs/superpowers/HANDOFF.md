@@ -8,7 +8,7 @@
 
 ## 지금 상태
 
-**Phase 1~3 및 Task 18 완료. 다음은 Phase 4(TLS, Task 14~16).**
+**Phase 1~3 및 Task 18 완료. Phase 4 진행 중 (Task 14 완료).**
 Phase 3의 코드는 전부 들어갔고, 남은 것은 Task 13d의 수동 확인 1건이다(아래 참조).
 
 | Phase | 범위 | 상태 |
@@ -17,7 +17,7 @@ Phase 3의 코드는 전부 들어갔고, 남은 것은 Task 13d의 수동 확�
 | 1 — 설정 전역화 | Task 1~3 | ✅ **완료** |
 | 2 — 입력 강건성 | Task 4~8 | ✅ **완료** |
 | 3 — 프로토콜 v2 코드 | Task 9~13e | ✅ **완료** (Task 13d 수동 확인 1건 미완) |
-| 4 — TLS | Task 14~16 | ⛔ **다음 차례** |
+| 4 — TLS | Task 14~16 | 🔶 **Task 14 완료**, Task 15 진행 예정 |
 | 5 — 문서·검증 | Task 18~19 | 🔶 **Task 18 완료**, Task 19 통합 검증 대기 |
 
 ## ✅ 재개 지점 — 깨끗한 상태
@@ -25,8 +25,9 @@ Phase 3의 코드는 전부 들어갔고, 남은 것은 Task 13d의 수동 확�
 **작업 트리에 미커밋 코드 변경이 없다.** 빌드(exit 0) 및 테스트 **21종** 전원 PASS를 확인했다.
 
 **다음 할 일:**
-- **Task 14 (전송 계층 추상화 — 순수 리팩터링)**. Phase 4 원칙: 프레이밍(`FHermesFrameCodec`, `FFrameAccumulator`)과 큐·백오프·상한 로직은 **한 줄도 바뀌지 않는다.** 바이트를 어디로 읽고 쓰는지만 달라진다. Task 14가 경계를 만들고 Task 16이 그 뒤에 TLS를 끼운다.
-- **Task 14 착수 전 확인**: 계획서 Task 14 Step 3의 `FHermesPlainTransport::Connect()` 에서 `SetKeepAlive` 호출은 이미 제거했다(2026-07-30 정정). Task 16에는 raw 디스크립터에 `setsockopt(SO_KEEPALIVE)` 를 넣도록 명시해 두었다.
+- **Task 15 (TLS 설정 순수 로직)**: `HermesTlsConfig` — 검증 대상 호스트명 결정, 모드 선택(체인/핀), Shipping 강제. 네트워크·OpenSSL 없이 단독 테스트가 되는 부분만 분리한다. 신규 테스트가 늘어난다.
+- 이어서 **Task 16 (OpenSSL 기반 TLS 전송)**: `FHermesTlsTransport : IHermesTransport`. Task 14가 만든 경계에 끼운다. `Build.cs` 에 `SSL` + OpenSSL 의존 추가가 필요하다.
+- **Task 16 착수 시 확인**: raw 디스크립터를 직접 소유하므로 `setsockopt(SO_KEEPALIVE)` 를 넣도록 계획서에 명시해 두었다(평문 경로는 UE 5.8 제약으로 생략 — 아래 Task 12 관련 기록 참조).
 
 ### ⚠️ Task 13d 미완 항목 — 수동 확인 (계획서 Step 5)
 
@@ -74,6 +75,9 @@ eviction war 가 없는지 확인하는 항목이다.
 ## 커밋 히스토리
 
 ```
+50823dc  refactor: 전송 계층을 IHermesTransport 로 추상화 (Task 14 ✅)
+0c14a80  docs: 수동 검증 환경 구축 가이드와 스텁 서버 추가
+4c21ae4  docs: Task 13e 완료 및 Phase 3 종료를 인계 기록에 반영
 6b3cf8c  feat: error.id 기반 진행 중 턴 즉시 실패 (Task 13e ✅) — Phase 3 완료
 5f1b518  docs: Task 13d 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록 갱신
 532f6e3  feat: 종료성 에러 시 재연결 루프 정지 (Task 13d — 수동 확인 미완)
@@ -109,6 +113,8 @@ Task 19의 수동 검증에서 확인한다. Task 12가 `Hermes.Liveness.Evaluat
 `Hermes.Connection.ErrorPolicy` 를 추가했다. Task 13d는 새 테스트를 추가하지 않는다 —
 정지 플래그는 워커 스레드와 실제 소켓이 얽혀 순수 판정으로 떼어낼 부분이 없고, 검증은
 계획서가 수동 확인으로 규정했다. Task 13e가 `Hermes.PendingChats.FailById` 를 추가했다.
+Task 14는 순수 리팩터링이라 테스트 수가 그대로다 — **21종이 그대로 통과하는 것 자체가
+동작 불변의 증거다.**
 
 ```
 Hermes.ActionParams.Coordinate
