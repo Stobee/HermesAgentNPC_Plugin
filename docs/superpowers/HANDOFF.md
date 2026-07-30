@@ -36,9 +36,14 @@ eviction war 가 없는지 확인하는 항목이다.
 
 **막힌 이유: `Content/` 에 `.gitkeep` 하나뿐이고 맵·에셋이 없어 PIE 를 띄울 수 없다.**
 (에디터 기동 로그의 `Can't find file '.../Content/Maps/SampleMap.umap'` 경고가 같은 원인이다.)
-**이 제약은 Task 19 통합 검증 전체에도 그대로 걸린다** — 수동 검증 항목을 진행하려면 먼저
-테스트용 맵과 NPC·위젯 블루프린트를 만들어야 한다. Task 19 착수 전에 이 준비를 별도 항목으로
-계획에 넣을 것.
+**이 제약은 Task 19 통합 검증 전체에도 그대로 걸린다.**
+
+**➡ 구축 가이드: `docs/testing/manual-verification-setup.md`** (2026-07-30 작성)
+만들어야 할 에셋 4개(위젯·NPC·플레이어·레벨), 위젯 `BindWidget` 이름 요구사항, 설정 권장값,
+검증 절차와 기대 로그 문자열이 들어 있다. **사용자가 에셋을 직접 만들기로 했다.**
+
+스텁 서버는 `docs/testing/hermes_stub_server.py` 로 준비되어 있다(표준 라이브러리만, 시나리오
+13종). `--scenario session_taken_over --once` 가 Task 13d Step 5 (a) 항목에 대응한다.
 
 코드 경로(Step 1~4, 6)는 완료·빌드·회귀 테스트를 통과했다.
 
@@ -61,6 +66,8 @@ eviction war 가 없는지 확인하는 항목이다.
 | 플러그인 가이드 문서 | `README.md` |
 | 기술 사양 HTML 문서 | `HermesAgentNPC_Documentation.html` |
 | 프로토콜 계약 | `ue5-socket-protocol.md` |
+| 수동 검증 환경 구축 가이드 | `docs/testing/manual-verification-setup.md` |
+| 수동 검증용 스텁 서버 | `docs/testing/hermes_stub_server.py` |
 | 설계 스펙 (내부) | `docs/superpowers/specs/2026-07-28-hermes-settings-globalization-design.md` |
 | 구현 계획서 (내부) | `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md` |
 
