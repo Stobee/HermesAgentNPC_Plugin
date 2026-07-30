@@ -231,6 +231,16 @@ void UHermesConnectionSubsystem::HandleFrame(const TSharedPtr<FJsonObject>& Obj)
 		FlushPendingChats();
 		OnConnectionStateChanged.Broadcast(true);
 	}
+	else if (Type == HermesMsg::ChatDelta)
+	{
+		// seq 는 읽지 않는다. 델타는 표시용이고 최종 텍스트가 정본이라 순번 검증이
+		// 없어도 화면이 자기 교정된다. 순번을 쓰기 시작하면 유실·재정렬 처리 로직이
+		// 따라붙는데 그만한 이득이 없다.
+		FString Text, Id;
+		Obj->TryGetStringField(TEXT("text"), Text);
+		Obj->TryGetStringField(TEXT("id"), Id);
+		OnChatDelta.Broadcast(Text, Id);
+	}
 	else if (Type == HermesMsg::ChatResponse)
 	{
 		FString Text, Id;

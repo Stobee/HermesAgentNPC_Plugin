@@ -12,6 +12,7 @@ class AHermesNPCCharacter;
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnChatResponse, const FString&, const FString&);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnConnectionStateChanged, bool);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnChatDelta, const FString& /*Text*/, const FString& /*Id*/);
 
 UCLASS()
 class HERMESAGENTNPC_API UHermesConnectionSubsystem : public UGameInstanceSubsystem
@@ -37,6 +38,9 @@ public:
 
 	FOnChatResponse OnChatResponse;
 	FOnConnectionStateChanged OnConnectionStateChanged;
+
+	/** 부분 응답. 표시용 힌트이며 정본은 OnChatResponse 가 전달하는 최종 텍스트다. */
+	FOnChatDelta OnChatDelta;
 
 private:
 	bool Tick(float DeltaTime);              // 게임스레드 인바운드 소비
