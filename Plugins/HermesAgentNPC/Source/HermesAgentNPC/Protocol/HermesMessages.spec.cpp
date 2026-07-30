@@ -171,3 +171,46 @@ bool FHermesMessagesPingTest::RunTest(const FString& Parameters)
 
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHermesMessagesActionEventTest,
+	"Hermes.Protocol.Messages.ActionEvent",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHermesMessagesActionEventTest::RunTest(const FString& Parameters)
+{
+	// 완료: event=completed, result 포함, error 없음
+	{
+		TSharedPtr<FJsonObject> Res = MakeShared<FJsonObject>();
+		Res->SetBoolField(TEXT("arrived"), true);
+
+		TSharedPtr<FJsonObject> Obj;
+		TestTrue(TEXT("parses"), HermesJson::Parse(
+			HermesJson::MakeActionEvent(TEXT("act-1"), true, Res, FString()), Obj));
+
+		FString Type, Id, Event;
+		Obj->TryGetStringField(TEXT("type"), Type);
+		Obj->TryGetStringField(TEXT("id"), Id);
+		Obj->TryGetStringField(TEXT("event"), Event);
+		TestEqual(TEXT("type"), Type, TEXT("action_event"));
+		TestEqual(TEXT("id"), Id, TEXT("act-1"));
+		TestEqual(TEXT("event"), Event, TEXT("completed"));
+		TestTrue(TEXT("has result"), Obj->HasField(TEXT("result")));
+		TestFalse(TEXT("no error"), Obj->HasField(TEXT("error")));
+	}
+
+	// 실패: event=failed, error 포함, result 없음
+	{
+		TSharedPtr<FJsonObject> Obj;
+		TestTrue(TEXT("parses"), HermesJson::Parse(
+			HermesJson::MakeActionEvent(TEXT("act-2"), false, nullptr, TEXT("path blocked")), Obj));
+
+		FString Event, Error;
+		Obj->TryGetStringField(TEXT("event"), Event);
+		Obj->TryGetStringField(TEXT("error"), Error);
+		TestEqual(TEXT("event"), Event, TEXT("failed"));
+		TestEqual(TEXT("error"), Error, TEXT("path blocked"));
+		TestFalse(TEXT("no result"), Obj->HasField(TEXT("result")));
+	}
+
+	return true;
+}

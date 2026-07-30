@@ -90,6 +90,24 @@ FString HermesJson::MakePong(const FString& Id)
 	return Serialize(O);
 }
 
+FString HermesJson::MakeActionEvent(const FString& Id, bool bCompleted,
+	const TSharedPtr<FJsonObject>& Result, const FString& Error)
+{
+	TSharedRef<FJsonObject> O = MakeShared<FJsonObject>();
+	O->SetStringField(TEXT("type"), HermesMsg::ActionEvent);
+	O->SetStringField(TEXT("id"), Id);
+	O->SetStringField(TEXT("event"), bCompleted ? TEXT("completed") : TEXT("failed"));
+	if (Result.IsValid())
+	{
+		O->SetObjectField(TEXT("result"), Result);
+	}
+	if (!Error.IsEmpty())
+	{
+		O->SetStringField(TEXT("error"), Error);
+	}
+	return Serialize(O);
+}
+
 bool HermesJson::ParseIdentified(const TSharedPtr<FJsonObject>& Obj,
 	FString& OutPlayerId, FString& OutToken, FString& OutChatId)
 {

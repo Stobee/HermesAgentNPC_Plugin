@@ -26,6 +26,10 @@ public:
 
 	void SendChat(const FString& Text);
 
+	/** 장기 실행 액션의 완료/실패를 서버에 알린다. 액션 핸들러가 호출한다. */
+	void SendActionEvent(const FString& Id, bool bCompleted,
+	                     const TSharedPtr<class FJsonObject>& Result, const FString& Error);
+
 	/**
 	 * 이 연결이 대상으로 삼을 NPC 를 지정한다. 플러그인은 NPC 한 명만 다루므로
 	 * 이미 지정된 NPC 가 있으면 경고를 남기고 교체한다. 프로토콜에 NPC 식별자가

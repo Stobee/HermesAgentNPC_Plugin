@@ -16,6 +16,7 @@ namespace HermesMsg
 	inline const FString Pong          = TEXT("pong");
 	inline const FString Error         = TEXT("error");
 	inline const FString ChatDelta     = TEXT("chat_delta");
+	inline const FString ActionEvent   = TEXT("action_event");
 }
 
 /** JSON 직렬화/역직렬화 및 아웃바운드 프레임 빌더. */
@@ -35,6 +36,13 @@ namespace HermesJson
 		const TSharedPtr<FJsonObject>& Result, const FString& Error);
 	FString MakePing(const FString& Id);
 	FString MakePong(const FString& Id);
+
+	/**
+	 * 이미 접수(action_result)한 액션의 완료/실패를 뒤늦게 알린다.
+	 * bCompleted=false 면 event="failed" 로 나가며 Error 가 실린다.
+	 */
+	FString MakeActionEvent(const FString& Id, bool bCompleted,
+	                        const TSharedPtr<FJsonObject>& Result, const FString& Error);
 
 	/**
 	 * identified 프레임에서 자격 증명을 꺼낸다.

@@ -182,6 +182,12 @@ void UHermesConnectionSubsystem::SendChat(const FString& Text)
 	}
 }
 
+void UHermesConnectionSubsystem::SendActionEvent(const FString& Id, bool bCompleted,
+	const TSharedPtr<FJsonObject>& Result, const FString& Error)
+{
+	SendJson(HermesJson::MakeActionEvent(Id, bCompleted, Result, Error));
+}
+
 void UHermesConnectionSubsystem::FlushPendingChats()
 {
 	for (const FString& J : PendingChats) SendJson(J);
