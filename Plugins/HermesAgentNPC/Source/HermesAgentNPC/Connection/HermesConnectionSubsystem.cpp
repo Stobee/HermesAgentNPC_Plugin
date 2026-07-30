@@ -1,5 +1,7 @@
 #include "Connection/HermesConnectionSubsystem.h"
 #include "Connection/HermesUtil.h"
+#include "Connection/HermesLiveness.h"
+#include "HAL/PlatformTime.h"
 #include "Transport/HermesSocketWorker.h"
 #include "Protocol/HermesMessages.h"
 #include "Actions/HermesActionDispatcher.h"
@@ -21,6 +23,16 @@ void UHermesConnectionSubsystem::Initialize(FSubsystemCollectionBase& Collection
 	const UHermesSettings* Settings = GetDefault<UHermesSettings>();
 
 	LoadCredentials();
+
+	// PeerTimeout 이 PingInterval 에 비해 너무 짧으면 정상 연결이 죽은 것으로 오판된다.
+	// 값을 강제로 교정하지는 않는다 — 설정자의 의도를 덮어쓰기보다 문제를 드러낸다.
+	if (Settings->PeerTimeoutSeconds < Settings->KeepAlivePingIntervalSeconds * 2.f)
+	{
+		UE_LOG(LogHermes, Warning,
+			TEXT("PeerTimeoutSeconds (%.1f) should be at least 2x "
+			     "KeepAlivePingIntervalSeconds (%.1f); false disconnects are likely"),
+			Settings->PeerTimeoutSeconds, Settings->KeepAlivePingIntervalSeconds);
+	}
 
 	Dispatcher = NewObject<UHermesActionDispatcher>(this);
 
@@ -132,7 +144,11 @@ void UHermesConnectionSubsystem::UnregisterNpc(AHermesNPCCharacter* Npc)
 
 void UHermesConnectionSubsystem::SendJson(const FString& Json)
 {
-	if (Worker) Worker->EnqueueOutbound(Json);
+	if (Worker)
+	{
+		Worker->EnqueueOutbound(Json);
+		LastSendTime = FPlatformTime::Seconds();
+	}
 }
 
 void UHermesConnectionSubsystem::SendIdentify()
@@ -171,11 +187,15 @@ bool UHermesConnectionSubsystem::Tick(float DeltaTime)
 {
 	if (!Worker) return true;
 
-	// 연결 엣지 감지: 새로 연결되면 재-identify
+	// 연결 엣지 감지: 새로 연결되면 재-identify 하고 생존 타이머를 초기화한다.
 	const bool bNow = Worker->IsConnected();
+	const double NowSeconds = FPlatformTime::Seconds();
+
 	if (bNow && !bWasConnected)
 	{
-		bIdentified = false;
+		bIdentified  = false;
+		LastRecvTime = NowSeconds;   // 초기화하지 않으면 연결 직후 즉시 사망 판정이 난다
+		LastSendTime = NowSeconds;
 		SendIdentify();
 	}
 	if (!bNow && bWasConnected)
@@ -194,11 +214,37 @@ bool UHermesConnectionSubsystem::Tick(float DeltaTime)
 		TSharedPtr<FJsonObject> Obj;
 		if (HermesJson::Parse(Json, Obj)) HandleFrame(Obj);
 	}
+
+	// 연결이 성립한 동안에만 평가한다. 재연결 대기 중에는 수신이 없는 것이 정상이다.
+	if (bNow)
+	{
+		const UHermesSettings* Settings = GetDefault<UHermesSettings>();
+		const HermesLiveness::EDecision D = HermesLiveness::Evaluate(
+			NowSeconds, LastRecvTime, LastSendTime,
+			Settings->KeepAlivePingIntervalSeconds, Settings->PeerTimeoutSeconds);
+
+		if (D == HermesLiveness::EDecision::SendPing)
+		{
+			SendJson(HermesJson::MakePing(FString::Printf(TEXT("k-%04d"), ++PingCounter)));
+		}
+		else if (D == HermesLiveness::EDecision::DeclareDead)
+		{
+			// 조용히 끊긴 연결은 다음 송신 시점까지 드러나지 않는다. 송신은 플레이어가
+			// 말을 걸 때 일어나므로, 그때 재연결이 시작되면 가장 나쁜 타이밍이 된다.
+			UE_LOG(LogHermes, Warning,
+				TEXT("peer silent for %.0fs, treating connection as dead"),
+				Settings->PeerTimeoutSeconds);
+			Worker->RequestReconnect();
+		}
+	}
 	return true; // 계속 틱
 }
 
 void UHermesConnectionSubsystem::HandleFrame(const TSharedPtr<FJsonObject>& Obj)
 {
+	// 종류를 가리지 않고 모든 수신이 생존 신호다.
+	LastRecvTime = FPlatformTime::Seconds();
+
 	FString Type;
 	if (!Obj->TryGetStringField(TEXT("type"), Type)) return;
 

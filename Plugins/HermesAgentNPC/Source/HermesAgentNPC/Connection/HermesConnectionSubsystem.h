@@ -67,5 +67,10 @@ private:
 	bool bIdentified = false;
 	bool bWasConnected = false;
 	int32 ChatCounter = 0;
+	int32 PingCounter = 0;
+
+	// 종류를 가리지 않는 마지막 수신/송신 시각. 연결 성립 시점에 초기화된다.
+	double LastRecvTime = 0.0;
+	double LastSendTime = 0.0;
 	TArray<FString> PendingChats; // identified 전 보류
 };
