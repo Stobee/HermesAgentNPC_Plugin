@@ -1,6 +1,6 @@
 # Hermes UE5 클라이언트 — 작업 진행 기록
 
-> 마지막 업데이트: 2026-07-30 (Task 13 대화 응답 타임아웃·발화 id 상관 완료)
+> 마지막 업데이트: 2026-07-30 (Task 13b action_event 비동기 완료 통지 완료)
 > 브랜치: `master`
 > 계획 문서: `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md`
 
@@ -23,7 +23,9 @@
 
 - [x] **Task 13** 대화 응답 타임아웃과 발화 `id` 상관 (`FHermesPendingChats` 시간 주입형 추적기, 델타 `Touch` 로 긴 생성 보호, 만료 시 `OnChatFailed` 통지, 연결 단절 시 진행 중 발화 일괄 실패, 위젯은 `GetLastSentChatId()` 와 일치하는 델타·응답만 반영) (`Hermes.PendingChats.Timeout` PASS). Task 11의 `StreamingId` 방어는 더 강한 상관 규칙으로 대체되어 제거
 
-## 자동화 테스트 결과 (총 18종 전원 PASS)
+- [x] **Task 13b** `action_event` 로 `move_to` 완료를 비동기 통지 (`MakeActionEvent`, `SendActionEvent`, `ReceiveMoveCompleted` 델리게이트, `action_result` 는 `{started, eta_seconds}` 로 접수만 알림) (`Hermes.Protocol.Messages.ActionEvent` PASS). 계획서에 없던 `AlreadyAtGoal` 경로를 추가 처리 — 완료 콜백이 `MoveToLocation` 안에서 동기로 끝나 델리게이트로 잡을 수 없다
+
+## 자동화 테스트 결과 (총 19종 전원 PASS)
 
 - `Hermes.ActionParams.Coordinate` : PASS
 - `Hermes.ActionParams.ItemId` : PASS
@@ -36,6 +38,7 @@
 - `Hermes.PendingChats.Timeout` : PASS
 - `Hermes.Protocol.FrameAccumulator.Parse` : PASS
 - `Hermes.Protocol.FrameCodec.Encode` : PASS
+- `Hermes.Protocol.Messages.ActionEvent` : PASS
 - `Hermes.Protocol.Messages.Build` : PASS
 - `Hermes.Protocol.Messages.IdentifyV2` : PASS
 - `Hermes.Protocol.Messages.ParseIdentified` : PASS
@@ -43,4 +46,4 @@
 - `Hermes.RateLimiter.TokenBucket` : PASS
 - `Hermes.Settings.CommandLineOverride` : PASS
 - `Hermes.Util.PushBounded` : PASS
-- `EXIT CODE: 0` (18/18 PASS)
+- `EXIT CODE: 0` (19/19 PASS)

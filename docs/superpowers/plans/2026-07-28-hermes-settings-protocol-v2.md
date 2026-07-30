@@ -3854,7 +3854,15 @@ void UMoveToActionHandler::OnMoveCompleted(FAIRequestID RequestID, EPathFollowin
 & "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Work\HermesAgentNPC\HermesAgentNPC.uproject" -ExecCmds="Automation RunTests Hermes; Quit" -unattended -nopause -nullrhi
 ```
 
-Expected: 빌드 성공, 테스트 18종 통과 (Task 13까지 17 + ActionEvent 1).
+Expected: 빌드 성공, 테스트 19종 통과 (Task 13까지 18 + ActionEvent 1).
+
+> **2026-07-30 추가.** `EPathFollowingRequestResult::AlreadyAtGoal` 을 별도로 처리해야 한다.
+> 이미 목표 지점이면 `AAIController::MoveTo` 가 `RequestMoveWithImmediateFinish(Success)`
+> 로 처리하므로 완료 콜백이 `MoveToLocation` 호출 **안에서 동기로** 끝난다. 위 코드처럼
+> 호출 뒤에 `PendingMoveId` 를 넣고 델리게이트를 걸면 잡을 것이 없어 `action_event` 가
+> 영영 나가지 않고 `PendingMoveId` 도 방치된다. 이 경로에서는 접수(`OnDone`)와 완료
+> (`SendActionEvent`)를 그 순서로 직접 보낸다 — `action_event` 는 같은 `id` 의
+> `action_result` 뒤에 와야 한다(§4.10).
 
 - [ ] **Step 7: 커밋**
 
