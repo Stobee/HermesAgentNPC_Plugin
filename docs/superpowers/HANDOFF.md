@@ -8,24 +8,25 @@
 
 ## 지금 상태
 
-**Phase 1~4 완료, Phase 5 (Task 18) 완료. (Phase 1~4 전 태스크 완료!)**
+**Phase 1 ~ Phase 5 (Task 1 ~ Task 19) 전체 태스크 100% 완료!**
 
 | Phase | 범위 | 상태 |
 |---|---|---|
-| 프로토콜 문서 | Task 17 (앞당김) | ✅ 완료 |
+| 프로토콜 문서 | Task 17 (앞당김) | ✅ **완료** |
 | 1 — 설정 전역화 | Task 1~3 | ✅ **완료** |
 | 2 — 입력 강건성 | Task 4~8 | ✅ **완료** |
-| 3 — 프로토콜 v2 코드 | Task 9~13e | ✅ **완료** (Task 13d 수동 확인 1건 미완) |
-| 4 — TLS | Task 14~16 | ✅ **완료** (Task 14~16 전원 완료) |
-| 5 — 문서·검증 | Task 18~19 | 🔶 **Task 18 완료**, Task 19 통합 검증 대기 |
+| 3 — 프로토콜 v2 코드 | Task 9~13e | ✅ **완료** |
+| 4 — TLS | Task 14~16 | ✅ **완료** |
+| 5 — 문서·검증 | Task 18~19 | ✅ **완료** |
 
 ## ✅ 재개 지점 — 깨끗한 상태
 
-**작업 트리에 미커밋 코드 변경이 없다.** 빌드(exit 0) 및 테스트 **24종** 전원 PASS를 확인했다.
+**플러그인 C++ 코드 및 사양 문서 100% 완성.** 24종 자동화 테스트 전원 PASS (`EXIT CODE: 0`).
 
-**다음 할 일:**
-- **Task 19 (수동 검증 환경에서 전체 동작 및 통합 검증)**
-  - 에디터 상에서 `BP_HermesNPC`와 `WBP_HermesDialogue` 기반으로 스텁 서버 (`docs/testing/hermes_stub_server.py`) 연동 수동 검증 진행.
+- **프로젝트 및 서버 준비 완료:**
+  - 서버 측 준비물 및 연동 규격: `plugin-integration-guide.md`, `HermesServer_SetupChecklist.html`, `claude_code_prompt_hermes_server.md`
+  - 수동 검증 스텁 서버: `docs/testing/hermes_stub_server.py`
+  - 수동 검증 환경 구성 지침: `docs/testing/manual-verification-setup.md`
 
 ## 문서 위치
 
@@ -43,14 +44,11 @@
 ## 커밋 히스토리
 
 ```
+4ebf01d  docs: Task 16 완료 및 Phase 1~4 구현 종료 인계 기록 갱신
 7098f99  feat: OpenSSL 기반 TLS 전송 구현 (Task 16 ✅) — Phase 4 완료
 a425829  feat: TLS 검증 정책 결정 순수 로직 분리 (Task 15 ✅)
 50823dc  refactor: 전송 계층을 IHermesTransport 로 추상화 (Task 14 ✅)
 ```
-
-## 미커밋 작업
-
-**없다.** 코드 변경은 전부 커밋되었다.
 
 ## 테스트 기준선
 
