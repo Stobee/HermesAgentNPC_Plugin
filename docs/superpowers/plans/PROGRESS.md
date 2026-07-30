@@ -28,6 +28,20 @@
 - [x] **Task 15** TLS 검증 정책 결정 순수 로직 분리 (`Hermes.TlsPolicy.*` PASS)
 - [x] **Task 16** OpenSSL 기반 TLS 전송 `FHermesTlsTransport` 구현 (SNI, SPKI 핀 검증, CA 검증, SO_KEEPALIVE)
 - [x] **Task 19** 24종 자동화 테스트 및 통합 시스템 검증 완료
+- [x] **검증 환경** PIE 수동 검증용 샘플 에셋을 저장소에 포함 (`1068a43`)
+
+## ⬜ 아직 남은 것
+
+구현 태스크는 전부 끝났지만 아래는 남아 있다. 자세한 배경은 `HANDOFF.md` 의
+"⬜ 남은 작업" 절에 있다.
+
+- [ ] **`bUseTLS=True` 전환** — `Config/DefaultGame.ini` 가 아직 `False` 다.
+      계획서 694행이 지정한 임시값이며, 서버 인증서 준비가 선행되어야 한다
+- [ ] **`Reconnect()` 블루프린트 노출** — 게임에 재접속 UI 가 생기는 시점에
+      `UFUNCTION(BlueprintCallable)` 부착 (의도적 보류)
+- [ ] **수동·통합 검증 실행** — 통과한 24종은 전부 순수 로직 테스트다.
+      PIE·네트워크 경로는 아직 한 번도 돌지 않았다.
+      절차: `docs/testing/manual-verification-setup.md` §4
 
 ## 자동화 테스트 결과 (총 24종 전원 PASS)
 
