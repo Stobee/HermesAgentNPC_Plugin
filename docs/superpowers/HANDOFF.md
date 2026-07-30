@@ -8,23 +8,26 @@
 
 ## 지금 상태
 
-**Phase 1(Task 1~3), Phase 2(Task 4~8), Task 18 완료. Phase 3 진행 중 (Task 9~13b 완료).**
+**Phase 1(Task 1~3), Phase 2(Task 4~8), Task 18 완료. Phase 3 진행 중 (Task 9~13c 완료).**
 
 | Phase | 범위 | 상태 |
 |---|---|---|
 | 프로토콜 문서 | Task 17 (앞당김) | ✅ 완료 |
 | 1 — 설정 전역화 | Task 1~3 | ✅ **완료** |
 | 2 — 입력 강건성 | Task 4~8 | ✅ **완료** |
-| 3 — 프로토콜 v2 코드 | Task 9~13e | 🔶 **Task 9~13b 완료**, Task 13c 진행 예정 |
+| 3 — 프로토콜 v2 코드 | Task 9~13e | 🔶 **Task 9~13c 완료**, Task 13d 진행 예정 |
 | 4 — TLS | Task 14~16 | ⛔ 대기 |
 | 5 — 문서·검증 | Task 18~19 | 🔶 **Task 18 완료**, Task 19 통합 검증 대기 |
 
 ## ✅ 재개 지점 — 깨끗한 상태
 
-**작업 트리에 미커밋 코드 변경이 없다.** 빌드(exit 0) 및 테스트 **19종** 전원 PASS를 확인했다.
+**작업 트리에 미커밋 코드 변경이 없다.** 빌드(exit 0) 및 테스트 **20종** 전원 PASS를 확인했다.
 
 **다음 할 일:**
-- **Task 13c (에러 코드 반응 정책 — 순수)**, 이어서 13d(종료성 에러 시 재연결 루프 정지), 13e(`error.id` 기반 진행 중 턴 즉시 실패). 13e는 Task 13이 만든 `FHermesPendingChats`를 소비한다. 이 셋이 Phase 3의 마지막이고, 그다음은 Phase 4(TLS, Task 14~16)다.
+- **Task 13d (종료성 에러 시 재연결 루프 정지)**: 워커에 `bReconnectSuspended`(`FThreadSafeBool`) 추가, `HermesErrorPolicy::React` 가 `StopReconnect` 면 `SuspendReconnect()` 호출 + 사유 로그, 의도적 재개용 `Reconnect()` 공개. **Step 5에 수동 확인이 있다** — 스텁 서버로 `session_taken_over` 후 재연결이 멈추는지, 두 클라이언트 간 eviction war 가 없는지 확인.
+- 이어서 **Task 13e** (`error.id` 기반 턴 즉시 실패, `FHermesPendingChats::FailById`). 이 둘이 Phase 3의 마지막이고 그다음은 Phase 4(TLS, Task 14~16)다.
+
+> **Task 13c는 정책 함수만 만들고 배선하지 않았다.** `EHermesErrorReaction` 의 `StopReconnect` 는 Task 13d, `FailPendingTurn` 은 Task 13e 가 소비한다. 현재 `HandleFrame` 의 `error` 분기는 여전히 경고 로그만 남긴다.
 
 ### ⚠️ Task 12 에서 생략된 항목 — 다시 시도하지 말 것
 
@@ -51,6 +54,8 @@
 ## 커밋 히스토리
 
 ```
+c29d46c  feat: 에러 코드 반응 정책을 순수 함수로 분리 (Task 13c ✅)
+ad5fee2  docs: Task 13b 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록 갱신
 1522937  feat: action_event 로 move_to 완료를 비동기 통지 (Task 13b ✅)
 83183f1  docs: Task 13 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록 갱신
 2ec580e  feat: 대화 응답 타임아웃과 발화 id 상관 (Task 13 ✅)
@@ -71,12 +76,13 @@ c3b7039  docs: Task 10 완료에 따른 HANDOFF.md 및 PROGRESS.md 인계 기록
 
 ## 테스트 기준선
 
-**2026-07-30 확인: 19종 전부 통과 (exit code 0).** Task 11은 자동화 테스트를 추가하지
+**2026-07-30 확인: 20종 전부 통과 (exit code 0).** Task 11은 자동화 테스트를 추가하지
 않는다 — `chat_delta` 처리는 델리게이트 브로드캐스트뿐이고 누적 표시는 위젯 상태라
 Task 19의 수동 검증에서 확인한다. Task 12가 `Hermes.Liveness.Evaluate`, Task 13이
 `Hermes.PendingChats.Timeout`, Task 13b가 `Hermes.Protocol.Messages.ActionEvent` 를
 추가했다. Task 13b의 `MoveToActionHandler` 두 단계 응답은 AI 컨트롤러와 네비게이션이
-필요해 자동화 테스트가 없다 — Task 19의 수동 검증 대상이다.
+필요해 자동화 테스트가 없다 — Task 19의 수동 검증 대상이다. Task 13c가
+`Hermes.Connection.ErrorPolicy` 를 추가했다.
 
 ```
 Hermes.ActionParams.Coordinate
@@ -84,6 +90,7 @@ Hermes.ActionParams.ItemId
 Hermes.ActionParams.Quantity
 Hermes.Actions.Dispatcher.Rebind
 Hermes.Actions.Dispatcher.Route
+Hermes.Connection.ErrorPolicy           ← Task 13c
 Hermes.Inventory.AddRemove
 Hermes.Inventory.AddSaturates
 Hermes.Liveness.Evaluate                ← Task 12

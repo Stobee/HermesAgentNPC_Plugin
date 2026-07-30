@@ -1,6 +1,6 @@
 # Hermes UE5 클라이언트 — 작업 진행 기록
 
-> 마지막 업데이트: 2026-07-30 (Task 13b action_event 비동기 완료 통지 완료)
+> 마지막 업데이트: 2026-07-30 (Task 13c 에러 코드 반응 정책 완료)
 > 브랜치: `master`
 > 계획 문서: `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md`
 
@@ -25,13 +25,16 @@
 
 - [x] **Task 13b** `action_event` 로 `move_to` 완료를 비동기 통지 (`MakeActionEvent`, `SendActionEvent`, `ReceiveMoveCompleted` 델리게이트, `action_result` 는 `{started, eta_seconds}` 로 접수만 알림) (`Hermes.Protocol.Messages.ActionEvent` PASS). 계획서에 없던 `AlreadyAtGoal` 경로를 추가 처리 — 완료 콜백이 `MoveToLocation` 안에서 동기로 끝나 델리게이트로 잡을 수 없다
 
-## 자동화 테스트 결과 (총 19종 전원 PASS)
+- [x] **Task 13c** 에러 코드 반응 정책을 순수 함수로 분리 (`EHermesErrorReaction`, `HermesErrorPolicy::React`, 프로토콜 §5의 10개 코드 전부 + 빈 문자열·미지 코드가 `LogOnly` 로 떨어지는지 검증) (`Hermes.Connection.ErrorPolicy` PASS). **배선 없음** — `StopReconnect` 는 Task 13d, `FailPendingTurn` 은 Task 13e 가 소비
+
+## 자동화 테스트 결과 (총 20종 전원 PASS)
 
 - `Hermes.ActionParams.Coordinate` : PASS
 - `Hermes.ActionParams.ItemId` : PASS
 - `Hermes.ActionParams.Quantity` : PASS
 - `Hermes.Actions.Dispatcher.Rebind` : PASS
 - `Hermes.Actions.Dispatcher.Route` : PASS
+- `Hermes.Connection.ErrorPolicy` : PASS
 - `Hermes.Inventory.AddRemove` : PASS
 - `Hermes.Inventory.AddSaturates` : PASS
 - `Hermes.Liveness.Evaluate` : PASS
@@ -46,4 +49,4 @@
 - `Hermes.RateLimiter.TokenBucket` : PASS
 - `Hermes.Settings.CommandLineOverride` : PASS
 - `Hermes.Util.PushBounded` : PASS
-- `EXIT CODE: 0` (19/19 PASS)
+- `EXIT CODE: 0` (20/20 PASS)
