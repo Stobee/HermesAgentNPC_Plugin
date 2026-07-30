@@ -1,6 +1,7 @@
 #include "Transport/HermesSocketWorker.h"
 #include "Protocol/HermesFrameCodec.h"
 #include "HermesLog.h"
+#include "Transport/HermesTlsTransport.h"
 #include "Transport/HermesPlainTransport.h"
 #include "SocketSubsystem.h"
 #include "SocketTypes.h"
@@ -102,9 +103,19 @@ bool FHermesSocketWorker::ConnectSocket()
 	TSharedRef<FInternetAddr> InetAddr = Chosen->Address->Clone();
 	InetAddr->SetPort(Config.Port);
 
-	// 소켓 생성·연결은 전송 구현이 담당한다. 이 워커는 바이트를 어디로 읽고
-	// 쓰는지 모르는 상태로 남아 프레이밍·큐·백오프만 다룬다.
-	Transport = MakeUnique<FHermesPlainTransport>();
+	// TLS 실패는 평문 폴백으로 이어지지 않는다. 연결을 닫고 백오프 재연결에 맡긴다.
+	if (Config.Tls.bUseTLS)
+	{
+		Transport = MakeUnique<FHermesTlsTransport>();
+	}
+	else
+	{
+		UE_LOG(LogHermes, Warning,
+			TEXT("connecting WITHOUT TLS to %s:%d — development only"),
+			*Config.Host, Config.Port);
+		Transport = MakeUnique<FHermesPlainTransport>();
+	}
+
 	if (!Transport->Connect(Config, *InetAddr))
 	{
 		Transport.Reset();

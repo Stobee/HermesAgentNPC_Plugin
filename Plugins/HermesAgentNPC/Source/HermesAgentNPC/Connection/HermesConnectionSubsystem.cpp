@@ -12,6 +12,8 @@
 #include "Actions/ItemTransferActionHandler.h"
 #include "HermesSaveGame.h"
 #include "HermesLog.h"
+#include "Transport/HermesTlsPolicy.h"
+#include "Misc/Paths.h"
 #include "Kismet/GameplayStatics.h"
 #include "Dom/JsonObject.h"
 #include "Settings/HermesSettings.h"
@@ -44,6 +46,31 @@ void UHermesConnectionSubsystem::Initialize(FSubsystemCollectionBase& Collection
 	Cfg.MaxReconnectDelay     = Settings->MaxReconnectDelay;
 	Cfg.MaxInboundQueueSize   = Settings->MaxInboundQueueSize;
 	Cfg.MaxOutboundQueueSize  = Settings->MaxOutboundQueueSize;
+
+	// Shipping 에서는 설정이 false 여도 TLS 를 강제한다. 배포된 게임이
+	// 설정 실수로 평문 통신하는 상황을 만들 수 없게 한다.
+#if UE_BUILD_SHIPPING
+	constexpr bool bShipping = true;
+#else
+	constexpr bool bShipping = false;
+#endif
+	Cfg.Tls.bUseTLS = HermesTls::ResolveUseTls(Settings->bUseTLS, bShipping);
+	if (Settings->bUseTLS != Cfg.Tls.bUseTLS)
+	{
+		UE_LOG(LogHermes, Error,
+			TEXT("bUseTLS=false is ignored in Shipping builds; TLS is enforced"));
+	}
+
+	Cfg.Tls.ServerName              = Settings->TlsServerName;
+	Cfg.Tls.PinnedPublicKeyHashes   = Settings->TlsPinnedPublicKeyHashes;
+	Cfg.Tls.HandshakeTimeoutSeconds = Settings->TlsHandshakeTimeoutSeconds;
+
+	// 워커 스레드가 경로 API 를 쓰지 않도록 게임 스레드에서 절대 경로로 바꾼다.
+	if (!Settings->TlsPrivateCaPath.IsEmpty())
+	{
+		Cfg.Tls.PrivateCaPath =
+			FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), Settings->TlsPrivateCaPath);
+	}
 
 	Worker = MakeUnique<FHermesSocketWorker>(Cfg);
 	Worker->Start();

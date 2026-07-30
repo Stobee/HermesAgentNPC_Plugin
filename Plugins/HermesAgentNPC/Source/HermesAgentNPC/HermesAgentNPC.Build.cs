@@ -19,5 +19,10 @@ public class HermesAgentNPC : ModuleRules
 			"UMG", "Slate", "SlateCore",
 			"DeveloperSettings"
 		});
+
+		// TLS 는 SSL 모듈(OpenSSL)로 구현한다. 플랫폼에 따라 없을 수 있으므로
+		// 관련 코드는 전부 #if WITH_SSL 로 감싼다.
+		PrivateDependencyModuleNames.Add("SSL");
+		AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenSSL");
 	}
 }
