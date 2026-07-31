@@ -1,4 +1,5 @@
 #include "UI/HermesDialogueWidget.h"
+#include "UI/HermesChatCorrelation.h"
 #include "Connection/HermesConnectionSubsystem.h"
 #include "HermesLog.h"
 #include "Components/EditableTextBox.h"
@@ -176,9 +177,10 @@ void UHermesDialogueWidget::HandleChatDelta(const FString& Text, const FString& 
 	// 발화의 응답이 현재 화면을 덮어쓰지 않게 한다. 서버가 턴 직렬화
 	// (프로토콜 §3.6)를 어기고 두 턴을 교차 전송해도 다른 턴의 델타는 여기서
 	// 걸러지므로 두 답변이 뒤섞인 문자열이 남지 않는다(§4.9).
-	if (!Connection || Id != Connection->GetLastSentChatId())
+	if (!Connection || !HermesChatCorrelation::ShouldDisplayDelta(
+		Id, Connection->GetLastSentChatId()))
 	{
-		UE_LOG(LogHermes, Verbose, TEXT("ignoring stale chat_delta for %s"), *Id);
+		UE_LOG(LogHermes, Verbose, TEXT("ignoring stale chat_delta for '%s'"), *Id);
 		return;
 	}
 
@@ -192,9 +194,13 @@ void UHermesDialogueWidget::HandleChatDelta(const FString& Text, const FString& 
 
 void UHermesDialogueWidget::HandleChatResponse(const FString& Text, const FString& Id)
 {
-	if (!Connection || Id != Connection->GetLastSentChatId())
+	// id 가 없으면 자발 발화다 — action_event 이후 서버가 먼저 거는 말이며
+	// 스펙 §4.4 가 id 를 optional 로 둔 이유가 이것이다. 상관 규칙을 그대로
+	// 적용하면 대응하는 발화가 없어 통째로 사라진다.
+	if (!Connection || !HermesChatCorrelation::ShouldDisplayResponse(
+		Id, Connection->GetLastSentChatId()))
 	{
-		UE_LOG(LogHermes, Verbose, TEXT("ignoring stale chat_response for %s"), *Id);
+		UE_LOG(LogHermes, Verbose, TEXT("ignoring stale chat_response for '%s'"), *Id);
 		return;
 	}
 

@@ -245,6 +245,16 @@ def serve(conn: socket.socket, addr, scenario: str) -> None:
                             "params": {"location": {"x": 500.0, "y": 500.0, "z": 100.0}},
                         })
 
+                    if scenario == "unprompted_speech":
+                        # id 없는 chat_response. 프로토콜 §4.4 에서 id 는
+                        # optional 이고, 없는 것은 서버가 먼저 거는 말이다
+                        # (action_event 이후의 "도착했어요").
+                        time.sleep(1.0)
+                        send_frame(conn, {
+                            "type": "chat_response",
+                            "text": "그러고 보니 방금 도착했어요.",
+                        })
+
                     if scenario == "unknown_command":
                         action_seq += 1
                         send_frame(conn, {
@@ -296,6 +306,7 @@ SCENARIOS = {
     "server_busy": "chat 의 id 를 달아 server_busy 를 보낸다. 타임아웃을 기다리지 않고 즉시 실패해야 한다 (Task 13e).",
     "error_without_id": "id 없는 internal_error 를 보낸다. 어떤 턴도 실패하지 않아야 한다 (Task 13e).",
     "stale_delta": "이전 턴의 id 로 델타를 보낸다. 화면에 나오지 않아야 한다 (Task 13 상관 규칙).",
+    "unprompted_speech": "id 없는 chat_response 를 보낸다. 자발 발화이므로 표시되어야 한다 (§4.4).",
     "interleaved_turns": "두 번째 chat 부터 두 턴의 델타를 섞어 보낸다. 다른 턴 조각이 섞이지 않아야 한다 (§4.9).",
     "silent_after_identify": "identify 후 침묵한다. PeerTimeoutSeconds 후 사망 판정과 재연결이 일어나야 한다 (Task 12).",
     "session_taken_over": "identify 에 session_taken_over 로 답하고 닫는다. 재연결이 멈춰야 한다 (Task 13d Step 5).",
