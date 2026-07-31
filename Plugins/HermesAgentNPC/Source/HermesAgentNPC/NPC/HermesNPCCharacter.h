@@ -46,7 +46,7 @@ private:
 	UPROPERTY()
 	UHermesDialogueWidget* DialogueWidget = nullptr;
 
-	UPROPERTY(VisibleAnywhere)
+	UPROPERTY(VisibleAnywhere, Category="Hermes")
 	UHermesInventoryComponent* Inventory;
 
 	bool bFollowing = false;
