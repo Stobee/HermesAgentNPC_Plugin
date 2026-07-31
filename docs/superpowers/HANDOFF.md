@@ -3,12 +3,12 @@
 > 이 파일은 작업이 중단되었을 때 다음 세션이 이어받기 위한 기록이다.
 > **태스크를 완료할 때마다 갱신한다.**
 
-- 최종 갱신: 2026-07-30
+- 최종 갱신: 2026-07-31
 - 브랜치: `master`
 
 ## 지금 상태
 
-**Phase 1 ~ Phase 5 (Task 1 ~ Task 19) 전체 태스크 100% 완료!**
+**Phase 1 ~ Phase 5 (Task 1 ~ Task 19) 전체 완료. + Task 20~22 (검증 중 발견한 버그 수정) 완료.**
 
 | Phase | 범위 | 상태 |
 |---|---|---|
@@ -17,19 +17,77 @@
 | 2 — 입력 강건성 | Task 4~8 | ✅ **완료** |
 | 3 — 프로토콜 v2 코드 | Task 9~13e | ✅ **완료** |
 | 4 — TLS | Task 14~16 | ✅ **완료** |
-| 5 — 문서·검증 | Task 18~19 | ✅ **완료** (24/24 자동화 테스트 + 스텁 서버 규격 검증) |
+| 5 — 문서·검증 | Task 18~19 | ✅ **완료** (25/25 자동화 테스트 + 스텁 13/13 실행 검증) |
+| 버그 수정 | Task 20~22 | ✅ **완료** (재연결 identify 누락 / 대화창 입력 / 검증 자동화) |
 
 ## ✅ 재개 지점 — 깨끗한 상태
 
-**플러그인 C++ 코드 및 사양 문서 100% 완성.** 24종 자동화 테스트 전원 PASS (`EXIT CODE: 0`).
-2026-07-30에 스텁 서버(`hermes_stub_server.py`) 기반 v2 소켓 프로토콜(`happy`, `session_taken_over` 등) 와이어 연동 검증을 성공적으로 마쳤다.
+**플러그인 C++ 코드 및 사양 문서 완성.** 25종 자동화 테스트 전원 PASS (`EXIT CODE: 0`).
+2026-07-31에 스텁 서버(`hermes_stub_server.py`)에 게임을 실제로 붙여 **13개 시나리오
+전부를 사람 개입 없이 실행 검증했다.** `move_to` 의 실제 이동과 도착 통지까지 포함한다.
+실행 명령과 관측 증거는 `docs/testing/manual-verification-setup.md` §4.0.
+
+**그 과정에서 버그 3건을 찾아 고쳤다 — 아래 "이번에 고친 것" 참조.**
 
 - **프로젝트 및 서버 준비 완료:**
   - 서버 측 준비물 및 연동 규격: `plugin-integration-guide.md`, `HermesServer_SetupChecklist.html`, `claude_code_prompt_hermes_server.md`
   - 수동 검증 스텁 서버: `docs/testing/hermes_stub_server.py`
   - 수동 검증 환경 구성 지침: `docs/testing/manual-verification-setup.md`
+  - 헤드리스 검증 하네스: `docs/testing/run-headless-verification.ps1`
   - **검증용 샘플 에셋이 저장소에 존재한다.** 클론 직후 에디터 PIE 가 실행 가능하다.
     `L_HermesTest`, `BP_TestMode`, `BP_HermesTestPlayer`, `IA_Interact`, `IMC_Default`
+
+## 🔧 이번에 고친 것
+
+### (Task 21) 대화창이 떠도 조작할 수 없었다 — 수동 검증 자체를 막고 있었다
+
+`UHermesDialogueWidget::OpenFor()` 가 `AddToViewport()` 만 부르고 입력 모드와 커서를
+설정하지 않았다. 창은 뜨지만 마우스가 뷰포트에 캡처된 채라 **입력창도 전송 버튼도
+누를 수 없다.** 이것 때문에 지금까지 PIE 수동 검증이 불가능했다.
+
+같은 함수에 두 번째 결함이 있었다. `Interact()` 가 위젯 인스턴스를 캐시해 재사용하는데
+`OpenFor` 가 매번 델리게이트를 다시 붙여, 두 번째 상호작용부터 한 번 눌러도 두 번
+전송된다.
+
+고친 내용: `FInputModeUIOnly` + 커서 표시 + 입력창 포커스, `Close()`/`IsOpen()` 추가
+(`Interact()` 는 토글, `EndPlay` 에서도 입력 복원), 입력창에서 **Enter 전송 / Esc 닫기**,
+이미 열려 있으면 재바인딩하지 않음. 자세한 기록은
+`docs/testing/manual-verification-setup.md` §7.2.
+
+### (Task 22) 검증용 콘솔 명령 — 사람 없이 대화 경로를 돌린다
+
+`HermesDebugCommands.cpp`. **Shipping 빌드에는 컴파일되지 않으므로 배포본에 남지 않는다.**
+
+- `Hermes.Interact [@지연초]` — 활성 NPC 의 `Interact()`. 실행 후 `bShowMouseCursor` 로그
+- `Hermes.Chat [@지연초] <텍스트>` — 발화 전송
+- `Hermes.Status [@지연초]` — NPC·연결·커서 상태
+
+이것으로 `chat` 이 필요한 시나리오 전부가 자동화되었다. 하네스의 `-Exec` 로 넘긴다.
+**`-ExecCmds` 는 쉼표로 나뉜다 — 세미콜론을 쓰면 조용히 무시된다.**
+
+### (스텁) `silent_after_identify` 가 침묵하지 않았다
+
+스텁의 `ping` 핸들러가 시나리오와 무관하게 `pong` 을 돌려줘 사망 판정이 영영 나지
+않았다. 이 시나리오에서 `pong` 을 보내지 않도록 고쳤고, 그 뒤 60초 사망 판정과
+재연결이 정상 관측된다. §7.3.
+
+### (Task 20) 재연결 시 `identify` 누락
+
+**증상.** 재연결 후 `identify` 를 보내지 않고 `ping` 만 주고받는 연결이 생긴다.
+서버는 신원 없는 연결을 들고 있고 클라이언트의 발화는 전부 `PendingChats` 에 쌓인다.
+연결은 살아 있어 보이므로 조용히 죽는다. `not_authorized`, `bad_frame` 에서 재현되었다.
+
+**원인.** 게임 스레드가 워커의 연결 상태를 불린 하나로 폴링했다. 에러로 인한
+재연결에는 백오프가 없어 두 틱 사이에 끝나는데, 그러면 `IsConnected()` 가
+참에서 참으로 보여 상승 엣지가 잡히지 않는다. identify 는 그 엣지에서만 나갔다.
+
+**수정.** `FHermesSocketWorker` 에 연결 세대 카운터를 두고, 전이 판정을
+`HermesConnectionEdge::Evaluate` 순수 함수로 분리했다(`HermesLiveness`,
+`HermesErrorPolicy` 와 같은 방식). 재연결은 끊김 정리와 identify 를 모두 수행한다.
+
+**회귀 감시선.** 자동화 테스트 `Hermes.Connection.Edge`, 그리고 하네스 요약의
+"연결 수 대비 identify 수" 경고. 자세한 기록은
+`docs/testing/manual-verification-setup.md` §7.1.
 
 ## 이 프로젝트의 위치
 
@@ -41,9 +99,9 @@
 | `Plugins/HermesAgentNPC/Content/` | 패키징에 실려 나간다. 검증 편의용 설정을 넣지 말 것 |
 | `Content/` | 샘플에만 남는다. 데모용 메쉬·입력·레벨은 여기에 둔다 |
 
-## ⬜ 남아있는 프로젝트 연동 과제 2건 (조건부 실작업)
+## ⬜ 남아있는 과제 (조건부 실작업)
 
-**C++ 구현은 끝났다**(소스 전체에 `TODO`/`FIXME` 0건). 실제 서버 구축 시 수행할 2건:
+**C++ 구현은 끝났다**(소스 전체에 `TODO`/`FIXME` 0건). 실제 서버 구축 시 수행할 것들:
 
 ### (1) `bUseTLS` 를 `True` 로 전환 — 실제 SSL 서버 구축 후
 
@@ -64,6 +122,19 @@ bUseTLS=False
 프로토콜 §3.4 가 이 호출을 *의도적 행위*로 규정하므로, 아무 데서나 부를 수 없게 보류해 뒀다.
 **게임에 재접속 UI(버튼)가 생기는 시점에 `UFUNCTION(BlueprintCallable)` 을 정식으로 붙인다.**
 
+### (3) 위젯이 눈에 어떻게 보이는지 — PIE 에서 한 번
+
+동작은 13개 시나리오 전부 자동 검증되었다. 남은 것은 로그로 드러나지 않는 것뿐이다 —
+위젯 레이아웃, 글자 크기, 창 위치. 한 번 보면 되는 확인이고, 시나리오를 손으로 돌 일은
+더 없다.
+
+### (4) 에러로 인한 재연결에 백오프가 없다 — 판단 필요
+
+`FHermesSocketWorker::Run()` 의 백오프는 **접속 실패**에만 적용된다. 접속은 성공하는데
+서버가 매번 에러로 끊으면 재연결이 왕복 지연 속도로 돈다(측정: 45초에 216 회).
+스텁의 인위적 상황이라 실서버에서 그대로 나타나지는 않지만, 서버가 그 상태에 빠지면
+클라이언트가 서버를 두드린다. 배경은 `manual-verification-setup.md` §7.2.
+
 ## 문서 위치
 
 | 문서 | 경로 |
@@ -74,6 +145,7 @@ bUseTLS=False
 | 프로토콜 계약 | `ue5-socket-protocol.md` |
 | 수동 검증 환경 구축 가이드 | `docs/testing/manual-verification-setup.md` |
 | 수동 검증용 스텁 서버 | `docs/testing/hermes_stub_server.py` |
+| 헤드리스 검증 하네스 | `docs/testing/run-headless-verification.ps1` |
 | 설계 스펙 (내부) | `docs/superpowers/specs/2026-07-28-hermes-settings-globalization-design.md` |
 | 구현 계획서 (내부) | `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md` |
 
@@ -88,7 +160,7 @@ c2a4d28  docs: 스텁 서버 와이어 검증 완료 및 브랜치 정리
 
 ## 테스트 기준선
 
-**2026-07-30 확인: 24종 전부 통과 (exit code 0).**
+**2026-07-31 확인: 25종 전부 통과 (exit code 0).**
 
 ```
 Hermes.ActionParams.Coordinate
@@ -96,6 +168,7 @@ Hermes.ActionParams.ItemId
 Hermes.ActionParams.Quantity
 Hermes.Actions.Dispatcher.Rebind
 Hermes.Actions.Dispatcher.Route
+Hermes.Connection.Edge
 Hermes.Connection.ErrorPolicy
 Hermes.Inventory.AddRemove
 Hermes.Inventory.AddSaturates
@@ -125,4 +198,9 @@ Hermes.Util.PushBounded
 
 # 전체 테스트
 & "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Work\HermesAgentNPC\HermesAgentNPC.uproject" -ExecCmds="Automation RunTests Hermes; Quit" -unattended -nopause -nullrhi
+
+# 스텁 서버 실행 검증 (13개 시나리오 전체 명령은 manual-verification-setup.md §4.0)
+.\docs\testing\run-headless-verification.ps1 -Scenario happy -Seconds 40 -ResetSave `
+    -Exec "Hermes.Interact @3, Hermes.Chat @5 hello"
+.\docs\testing\run-headless-verification.ps1 -Scenario session_taken_over -Seconds 70
 ```

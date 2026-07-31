@@ -160,7 +160,7 @@ Enhanced Input Action (IA_Interact, 예: E 키)
 |---|---|---|
 | `Host` | `127.0.0.1` | 기본값 |
 | `Port` | `8770` | 기본값. 스텁 서버 기본값과 같다 |
-| `Use TLS` | `true` (그대로) | **아직 아무 영향이 없다** — TLS 는 Task 16 에서 구현된다. 현재 전송은 항상 평문이다 |
+| `Use TLS` | `false` | 스텁 서버는 평문만 받는다. TLS 는 Task 16 에서 구현되었으므로 `true` 로 두면 스텁에 붙지 못한다 |
 | `Keep Alive Ping Interval Seconds` | `20` → 검증 시 `5` | 짧게 줄이면 ping 을 빨리 볼 수 있다 |
 | `Peer Timeout Seconds` | `60` → 검증 시 `15` | 사망 판정을 빨리 보려면 줄인다 |
 | `Chat Response Timeout Seconds` | `60` → 검증 시 `10` | 타임아웃 검증 대기시간을 줄인다 |
@@ -221,9 +221,95 @@ py docs\testing\hermes_stub_server.py --scenario session_taken_over
 `--once` 를 주면 한 연결만 처리하고 끝난다. 재연결이 **멈췄는지** 확인할 때 유용하다 —
 서버가 살아 있으면 "멈춤"과 "서버가 죽어서 못 붙음"을 구분할 수 없기 때문이다.
 
+### 3.1 헤드리스 하네스 — 13개 시나리오 전부 사람 없이 돌린다
+
+`docs/testing/run-headless-verification.ps1` 이 스텁 기동 · 게임 접속 · 발화 주입 ·
+로그 수집을 한 번에 한다. 에디터 PIE 가 아니라 `-game` 모드지만 같은 코드를 지난다 —
+`L_HermesTest` 가 그대로 로드되고 NPC·내비메시·대화 위젯이 모두 살아 있다.
+
+```powershell
+# 접속만 보는 경우
+.\docs\testing\run-headless-verification.ps1 -Scenario happy -ResetSave
+
+# 대화가 필요한 경우 — 콘솔 명령으로 발화를 넣는다
+.\docs\testing\run-headless-verification.ps1 -Scenario move_to -Seconds 55 -ResetSave `
+    -Exec "Hermes.Interact @3, Hermes.Chat @5 move please"
+```
+
+**`-Exec` 는 쉼표로 나뉜다. 세미콜론이 아니다.** UE 의 `-ExecCmds` 가 쉼표로 자르기
+때문이며, 세미콜론을 쓰면 뒤 명령이 앞 명령의 인자로 먹혀 조용히 실행되지 않는다.
+
+`@N` 은 지연 초다. 맵 로드 직후에는 접속도 NPC 스폰도 끝나지 않았으므로 필요하다.
+
+#### 검증용 콘솔 명령
+
+`HermesDebugCommands.cpp` 에 있다. **Shipping 빌드에는 컴파일되지 않는다.**
+
+| 명령 | 하는 일 |
+|---|---|
+| `Hermes.Interact [@N]` | 활성 NPC 의 `Interact()` 호출. 실행 후 `bShowMouseCursor` 를 로그로 남긴다 |
+| `Hermes.Chat [@N] <텍스트>` | 발화 전송. `identified` 이전이면 보류 큐를 타므로 그 경로도 겸사 확인된다 |
+| `Hermes.Status [@N]` | NPC·연결·커서 상태 |
+
+#### 자동 검사
+
+요약에서 연결 수와 `identify` 수를 비교한다. `identify` 가 적으면 경고가 뜬다
+(게임을 강제 종료하며 잘리는 마지막 하나는 허용). §7.1 회귀의 감시선이다.
+
+#### 그래도 사람이 봐야 하는 것
+
+**하나뿐이다: 실제로 눈에 보이는가.** 위젯 레이아웃, 글자 크기, 창 위치처럼 로그로
+드러나지 않는 것들. 동작은 전부 자동으로 확인된다 — 텍스트가 무엇으로 설정되는지는
+`DialogueText->SetText` 호출까지 코드 경로로 검증되지만, 그것이 화면에서 읽히는지는
+아니다. 한 번 눈으로 확인하면 되고, 매번 시나리오를 손으로 돌 필요는 없다.
+
 ---
 
 ## 4. 검증 절차
+
+### 4.0 전체 시나리오 실행 명령 — 2026-07-31 13/13 통과
+
+아래를 그대로 돌리면 §4.1~§4.2 가 전부 확인된다. `$h` 는 하네스 경로다.
+
+```powershell
+$h = ".\docs\testing\run-headless-verification.ps1"
+
+& $h -Scenario happy                    -Seconds 40 -ResetSave -Exec "Hermes.Interact @3, Hermes.Chat @5 hello there"
+& $h -Scenario move_to                  -Seconds 55 -ResetSave -Exec "Hermes.Interact @3, Hermes.Chat @5 move please"
+& $h -Scenario unknown_command          -Seconds 40 -ResetSave -Exec "Hermes.Interact @3, Hermes.Chat @5 do it"
+& $h -Scenario server_busy              -Seconds 40 -ResetSave -Exec "Hermes.Interact @3, Hermes.Chat @5 hi"
+& $h -Scenario error_without_id         -Seconds 40 -ResetSave -Exec "Hermes.Interact @3, Hermes.Chat @5 hi"
+& $h -Scenario stale_delta              -Seconds 40 -ResetSave -Exec "Hermes.Interact @3, Hermes.Chat @5 hi"
+& $h -Scenario interleaved_turns        -Seconds 55 -ResetSave -Exec "Hermes.Interact @3, Hermes.Chat @5 first, Hermes.Chat @9 second"
+& $h -Scenario chat_timeout             -Seconds 80 -ResetSave -Exec "Hermes.Interact @3, Hermes.Chat @5 hi"
+& $h -Scenario silent_after_identify    -Seconds 95 -ResetSave
+& $h -Scenario session_taken_over       -Seconds 70
+& $h -Scenario unsupported_version_error -Seconds 40 -ResetSave
+& $h -Scenario not_authorized           -Seconds 45
+& $h -Scenario bad_frame                -Seconds 45 -ResetSave
+```
+
+`chat_timeout` 과 `silent_after_identify` 는 기본 타임아웃이 60초라 길다. 짧게 보려면
+`Config/DefaultGame.ini` 의 `ChatResponseTimeoutSeconds` / `PeerTimeoutSeconds` 를
+줄인다(§2 표 참고).
+
+**2026-07-31 확인된 증거:**
+
+| 시나리오 | 관측된 것 |
+|---|---|
+| `happy` | `chat` → `chat_delta` ×4 → `chat_response` |
+| `move_to` | `action_result{started, eta_seconds=0.73}` (`arrived` 없음) → `action_event{completed, arrived:true}` |
+| `unknown_command` | `action_result{ok:false, error:"unsupported command"}` |
+| `server_busy` | 발화 10ms 뒤 `server error server_busy ... (id 'c-0001')` — 타임아웃 대기 없음 |
+| `error_without_id` | `(id '')` 로 로그만. 어떤 턴도 실패하지 않음 |
+| `stale_delta` | `ignoring stale chat_delta for c-0000-stale` |
+| `interleaved_turns` | `ignoring stale chat_delta for c-9999` — `B조각` 걸러짐 |
+| `chat_timeout` | 전송 정확히 60초 뒤 `chat c-0001 timed out` |
+| `silent_after_identify` | `peer silent for 60s, treating connection as dead` → 재연결 → 재-identify |
+| `session_taken_over` | `fatal server error ... stopping the reconnect loop`, 70초간 재접속 없음 |
+| `unsupported_version_error` | 동일하게 정지 |
+| `not_authorized` | 자격 증명 폐기 후 신규 발급 요청. 195 회 재연결 전부 `identify` 동반 |
+| `bad_frame` | 정지 없이 재연결, 216/216 재-identify |
 
 ### 4.1 Task 13d Step 5 — 종료성 에러 시 재연결 정지
 
@@ -309,6 +395,8 @@ Task 11~13e 로 들어간 것들이다. 각 항목의 시나리오와 기대 결
 | 증상 | 원인 |
 |---|---|
 | 대화창이 안 열린다 | `BP_HermesNPC` 의 `Dialogue Widget Class` 가 비어 있다. 또는 `Interact()` 를 부르는 입력이 없다. 또는 **Input Mapping Context 를 등록하지 않았다**(§1.3) |
+| 창은 열리는데 마우스가 없다 | **고쳐졌다**(§7.3). 이 증상이 다시 보이면 `OpenFor` 가 `ApplyInputMode(true)` 를 부르는지 확인할 것 |
+| 대화창에서 나갈 수 없다 | 입력창에 커서를 두고 **Esc**. `FInputModeUIOnly` 라 게임 키가 닿지 않으므로 이것이 퇴로다(§7.3) |
 | NPC 가 안 보인다 | 정상이다. 메쉬는 필수가 아니다. 보고 싶으면 Static Mesh(Cube) 컴포넌트를 붙인다(§1.2) |
 | 내비메시가 있는데 `path blocked` | NPC **스폰 지점**이 내비메시를 벗어나 있다. 목표 좌표만 덮여도 부족하다 |
 | 창은 열리는데 입력·버튼이 죽어 있다 | 위젯 변수명이 `InputBox`/`DialogueText`/`SendButton` 과 다르다. 또는 `Is Variable` 이 꺼져 있다 |
@@ -338,3 +426,63 @@ Task 11~13e 로 들어간 것들이다. 각 항목의 시나리오와 기대 결
 > 전례가 있다. NPC 를 눈으로 보려고 붙인 `SkeletalCube` 가 플러그인 기본값에
 > 들어가 버려 나중에 걷어냈다(`cf09bca`). 보이는 메쉬가 필요하면
 > **레벨에 배치된 인스턴스**에 붙인다.
+
+---
+
+## 7. 2026-07-31 헤드리스 검증에서 나온 것
+
+### 7.1 고친 것 — 두 틱 사이에 끝난 재연결을 놓쳤다
+
+`not_authorized`, `bad_frame` 시나리오에서 **재연결한 뒤 `identify` 를 보내지 않고
+`ping` 만 주고받는 연결**이 관측되었다. 서버는 신원 없는 연결을 들고 있고,
+클라이언트는 `bIdentified` 가 거짓이라 발화가 전부 `PendingChats` 에 쌓인다.
+겉으로는 연결이 살아 있어 보여 조용히 죽는다.
+
+원인은 게임 스레드가 워커의 연결 상태를 **불린 하나로 폴링**한 것이다.
+`RequestReconnect()` 로 끊고 다시 붙는 경로에는 백오프가 없어 두 틱 사이에 끝나는데,
+그러면 `IsConnected()` 가 참에서 참으로 보여 상승 엣지가 잡히지 않는다.
+
+워커에 연결 세대 카운터를 두고 판정을 `HermesConnectionEdge::Evaluate` 로 분리했다.
+회귀 감시선은 두 곳이다 — 자동화 테스트 `Hermes.Connection.Edge`, 그리고 §3.1 하네스의
+"연결 수 대비 identify 수" 경고.
+
+### 7.2 고친 것 — 대화창이 떠도 조작할 수 없었다
+
+`OpenFor()` 가 `AddToViewport()` 만 부르고 입력 모드와 커서를 건드리지 않았다.
+창은 뜨지만 마우스가 뷰포트에 캡처된 채라 **입력창도 전송 버튼도 누를 수 없었다.**
+수동 검증이 애초에 불가능했던 원인이다.
+
+같은 함수에 두 번째 결함이 있었다. `Interact()` 는 위젯 인스턴스를 캐시해 재사용하는데
+`OpenFor` 가 호출될 때마다 `SendButton->OnClicked` 와 구독 4개를 다시 붙였다.
+두 번째 상호작용부터 한 번 눌러도 두 번 전송된다.
+
+고친 내용:
+
+- `ApplyInputMode(true/false)` — `FInputModeUIOnly` + 커서 표시 + 입력창 포커스.
+  `GameAndUI` 를 쓰지 않은 이유는 타이핑한 글자가 게임 입력으로도 흘러 이동·점프가
+  섞이기 때문이다.
+- `Close()` 와 `IsOpen()` — 입력을 게임으로 되돌린다. `Interact()` 는 토글이 되었고,
+  NPC 가 `EndPlay` 로 사라질 때도 입력이 UI 에 묶인 채 남지 않는다.
+- 입력창에서 **Enter 로 전송, Esc 로 닫기**. 마우스 없이도 조작할 수 있다.
+- 이미 열려 있으면 `OpenFor` 가 즉시 반환한다. 중복 바인딩이 사라졌다.
+
+### 7.3 고친 것 — `silent_after_identify` 가 침묵하지 않았다
+
+스텁의 `ping` 핸들러가 시나리오와 무관하게 `pong` 을 돌려줬다. 그것이 수신 신호가 되어
+`LastRecvTime` 이 갱신되므로 **사망 판정이 영영 나지 않았다.** 시나리오 이름이 약속한
+것을 실제로 하지 않았던 셈이다. 이 시나리오에서는 `pong` 을 보내지 않도록 고쳤고,
+그 뒤 60초 사망 판정과 재연결이 정상 관측된다.
+
+### 7.4 안 고친 것 — 에러로 인한 재연결에는 백오프가 없다
+
+위 수정으로 드러난 별개의 사실이다. `FHermesSocketWorker::Run()` 의 백오프는
+**접속 실패**에만 적용된다. 접속은 성공하는데 서버가 매번 에러로 끊는 상황
+(`not_authorized`, `bad_frame`)에서는 매 사이클 `ConnectSocket()` 이 성공해
+`Backoff` 가 초기값으로 리셋되므로, 재연결이 왕복 지연 속도로 계속 돈다.
+
+측정값: `bad_frame` 45초에 **216 회 접속**, `not_authorized` 40초에 **195 회 접속**.
+
+스텁이 회복 불가능한 응답을 계속 주는 인위적 상황이라 실서버에서 그대로 나타나지는
+않는다(실서버라면 자격 증명을 새로 발급해 준다). 다만 서버가 그 상태에 빠지면
+클라이언트가 서버를 두드리게 되므로, **에러로 인한 재연결도 백오프 사다리를
+공유할지**는 결정이 필요하다. 실서버 연동 시 판단할 것.

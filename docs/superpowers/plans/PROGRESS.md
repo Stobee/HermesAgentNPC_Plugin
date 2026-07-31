@@ -1,6 +1,6 @@
 # Hermes UE5 클라이언트 — 작업 진행 기록
 
-> 마지막 업데이트: 2026-07-30 (Task 19 통합 검증 완료 — Phase 1~5 전체 100% 완료)
+> 마지막 업데이트: 2026-07-31 (스텁 13개 시나리오 전부 실행 검증 — 버그 3건 발견·수정)
 > 브랜치: `master`
 > 계획 문서: `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md`
 
@@ -29,27 +29,46 @@
 - [x] **Task 16** OpenSSL 기반 TLS 전송 `FHermesTlsTransport` 구현 (SNI, SPKI 핀 검증, CA 검증, SO_KEEPALIVE)
 - [x] **Task 19** 24종 자동화 테스트 및 통합 시스템 검증 완료
 - [x] **검증 환경** PIE 수동 검증용 샘플 에셋을 저장소에 포함 (`1068a43`)
+- [x] **Task 20** 재연결 시 `identify` 누락 수정 — 연결 세대 도입 및 판정 분리
+      (`Hermes.Connection.Edge` PASS). 배경은 `manual-verification-setup.md` §7.1
+- [x] **Task 21** 대화창 입력 모드·커서 누락 및 중복 바인딩 수정. 배경은 §7.2
+- [x] **Task 22** 검증용 콘솔 명령(`Hermes.Interact`/`Chat`/`Status`)과 헤드리스
+      하네스 정비. Shipping 빌드에는 컴파일되지 않는다
+- [x] **스텁 수정** `silent_after_identify` 가 pong 을 돌려줘 침묵하지 않던 문제. §7.3
+
+## ✅ 스텁 13개 시나리오 전부 실행 검증 (2026-07-31)
+
+`docs/testing/run-headless-verification.ps1` 로 스텁 서버에 실제로 붙여 확인했다.
+`-game` 모드지만 `L_HermesTest` 가 그대로 로드되어 NPC·내비메시·대화 위젯이 모두
+살아 있으므로 같은 코드를 지난다. 실행 명령과 관측된 증거는
+`docs/testing/manual-verification-setup.md` §4.0 에 있다.
+
+**13/13 통과.** `happy`, `move_to`(실제 이동·`action_event{arrived}`), `unknown_command`,
+`server_busy`, `error_without_id`, `stale_delta`, `interleaved_turns`, `chat_timeout`,
+`silent_after_identify`, `session_taken_over`, `unsupported_version_error`,
+`not_authorized`, `bad_frame`.
+
+이 과정에서 버그 3건(클라이언트 2건 + 스텁 1건)을 찾아 고쳤다.
 
 ## ⬜ 아직 남은 것
-
-구현 태스크는 전부 끝났지만 아래는 남아 있다. 자세한 배경은 `HANDOFF.md` 의
-"⬜ 남은 작업" 절에 있다.
 
 - [ ] **`bUseTLS=True` 전환** — `Config/DefaultGame.ini` 가 아직 `False` 다.
       계획서 694행이 지정한 임시값이며, 서버 인증서 준비가 선행되어야 한다
 - [ ] **`Reconnect()` 블루프린트 노출** — 게임에 재접속 UI 가 생기는 시점에
       `UFUNCTION(BlueprintCallable)` 부착 (의도적 보류)
-- [ ] **수동·통합 검증 실행** — 통과한 24종은 전부 순수 로직 테스트다.
-      PIE·네트워크 경로는 아직 한 번도 돌지 않았다.
-      절차: `docs/testing/manual-verification-setup.md` §4
+- [ ] **위젯이 눈에 어떻게 보이는지** — 동작은 전부 자동 검증되지만 레이아웃·글자
+      크기·창 위치는 로그로 드러나지 않는다. PIE 에서 한 번 보면 되는 확인이다
+- [ ] **에러로 인한 재연결의 백오프 부재** — 판단 필요. 배경은
+      `manual-verification-setup.md` §7.4
 
-## 자동화 테스트 결과 (총 24종 전원 PASS)
+## 자동화 테스트 결과 (총 25종 전원 PASS)
 
 - `Hermes.ActionParams.Coordinate` : PASS
 - `Hermes.ActionParams.ItemId` : PASS
 - `Hermes.ActionParams.Quantity` : PASS
 - `Hermes.Actions.Dispatcher.Rebind` : PASS
 - `Hermes.Actions.Dispatcher.Route` : PASS
+- `Hermes.Connection.Edge` : PASS
 - `Hermes.Connection.ErrorPolicy` : PASS
 - `Hermes.Inventory.AddRemove` : PASS
 - `Hermes.Inventory.AddSaturates` : PASS
@@ -69,4 +88,4 @@
 - `Hermes.TlsPolicy.UseTls` : PASS
 - `Hermes.TlsPolicy.VerifyMode` : PASS
 - `Hermes.Util.PushBounded` : PASS
-- `EXIT CODE: 0` (24/24 PASS)
+- `EXIT CODE: 0` (25/25 PASS, 2026-07-31 재확인)
