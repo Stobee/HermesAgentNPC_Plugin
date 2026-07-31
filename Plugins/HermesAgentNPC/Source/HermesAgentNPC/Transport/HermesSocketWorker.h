@@ -40,8 +40,6 @@ public:
 	/** 정지를 해제한다. 게임이 의도적으로 다시 붙을 때만 호출한다. */
 	void ResumeReconnect();
 
-	bool IsReconnectSuspended() const { return bReconnectSuspended; }
-
 	// FRunnable
 	virtual uint32 Run() override;
 	virtual void Stop() override;

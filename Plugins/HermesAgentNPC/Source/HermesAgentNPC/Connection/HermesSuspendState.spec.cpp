@@ -96,6 +96,26 @@ bool FHermesSuspendStateTest::RunTest(const FString& Parameters)
 			S.CooldownRemaining(100.0, Initial, Max), 0.f);
 	}
 
+	// 시계가 역행(NowSeconds < SuspendedAt)해도 대기가 Required 를 넘지 않는다.
+	{
+		FHermesSuspendState S;
+		S.NoteConnectionOpened();
+		S.NoteSuspended(100.0);
+		S.TryResume(100.0, Initial, Max);
+		S.NoteConnectionOpened();
+		S.NoteSuspended(110.0); // 2회째, Required = 5.0
+		
+		TestEqual(TEXT("시계 역행 시 상한은 Required"),
+			S.CooldownRemaining(50.0, Initial, Max), 5.f);
+	}
+
+	// NoteConnectionOpened 없이 NoteConnectionClosed 가 불려도 무해하다.
+	{
+		FHermesSuspendState S;
+		S.NoteConnectionClosed(30.0, Healthy);
+		TestFalse(TEXT("정지 상태가 변하지 않음"), S.IsSuspended());
+	}
+
 	// Reset() 은 정지 상태를 완전히 지운다 — 소유자(연결 서브시스템)가 사라진
 	// 뒤에도 남은 참조가 질의하면 "정지 중"이 영원히 고정되는 것을 막는다.
 	{

@@ -143,4 +143,28 @@ static FAutoConsoleCommandWithWorldAndArgs GHermesStatusCmd(
 			});
 		}));
 
+static FAutoConsoleCommandWithWorldAndArgs GHermesReconnectCmd(
+	TEXT("Hermes.Reconnect"),
+	TEXT("정지된 재연결 루프를 의도적으로 다시 돌린다. 사용: Hermes.Reconnect [@지연초]"),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(
+		[](const TArray<FString>& InArgs, UWorld* World)
+		{
+			TArray<FString> Args = InArgs;
+			const float Delay = HermesDebugCmd::TakeDelay(Args);
+			TWeakObjectPtr<UWorld> WeakWorld(World);
+
+			HermesDebugCmd::RunAfter(Delay, [WeakWorld]()
+			{
+				UHermesConnectionSubsystem* Conn = HermesDebugCmd::GetConnection(WeakWorld.Get());
+				if (!Conn)
+				{
+					UE_LOG(LogHermes, Error, TEXT("Hermes.Reconnect: 연결 서브시스템이 없다"));
+					return;
+				}
+				const bool bResumed = Conn->Reconnect();
+				UE_LOG(LogHermes, Display, TEXT("Hermes.Reconnect: 호출 완료 (성공여부=%s)"),
+					bResumed ? TEXT("true") : TEXT("false"));
+			});
+		}));
+
 #endif // !UE_BUILD_SHIPPING

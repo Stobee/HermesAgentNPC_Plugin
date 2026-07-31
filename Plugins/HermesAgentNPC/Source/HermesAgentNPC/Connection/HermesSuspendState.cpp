@@ -38,7 +38,7 @@ float FHermesSuspendState::CooldownRemaining(double NowSeconds, float Initial, f
 	const float Required = HermesResumePolicy::RequiredCooldown(
 		ConsecutiveSuspends, Initial, Max);
 	const double Elapsed = NowSeconds - SuspendedAt;
-	return FMath::Max(0.f, Required - static_cast<float>(Elapsed));
+	return FMath::Clamp(Required - static_cast<float>(Elapsed), 0.f, Required);
 }
 
 bool FHermesSuspendState::TryResume(double NowSeconds, float Initial, float Max)

@@ -3,7 +3,7 @@
 [![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.8-blue.svg?logo=unrealengine)](https://www.unrealengine.com/)
 [![C++ Standard](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://isocpp.org/)
 [![Plugin Status](https://img.shields.io/badge/Plugin-Content%20Included-brightgreen.svg)]()
-[![Automation Tests](https://img.shields.io/badge/Tests-24%2F24%20PASS-success.svg)]()
+[![Automation Tests](https://img.shields.io/badge/Tests-30%2F30%20PASS-success.svg)]()
 
 언리얼 엔진 5.8(Unreal Engine 5.8) C++ 기반의 **Hermes AI Agent NPC 독립 플러그인**입니다.  
 외부 Hermes AI 백엔드 서버와 TCP 소켓 통신을 통해 유저와 자연어 대화를 나누고, LLM의 지시에 따라 인게임 액션(이동, 추적, 인벤토리 관리, 아이템 거래)을 비동기로 안전하게 수행합니다.
@@ -182,6 +182,12 @@ Shipping 빌드에서는 이 설정이 무시되고 TLS가 강제되며, 무시�
 >
 > 활성 NPC가 파괴되면(`EndPlay`) 배선이 자동으로 해제되어, 죽은 액터로 액션이 향하지 않습니다.
 
+### 6. 수동 재접속 (의도적 재개)
+
+서버 재시작, 세션 탈취(`session_taken_over`), 지원하지 않는 버전(`unsupported_version`) 등의 치명적인 에러가 발생하면 무한 재시도로 인한 핑퐁(Eviction War)을 막기 위해 플러그인은 **재연결 루프를 영구 정지**합니다. 이때 게임이 다시 연결을 시도하려면 명시적으로 재개를 요청해야 합니다.
+
+블루프린트에서 `UHermesConnectionSubsystem`의 **`Reconnect()`** 를 호출할 수 있습니다. 잦은 재접속 시도를 막기 위해 설정(`ReconnectCooldownSeconds`)에 따라 쿨다운이 강제됩니다. 남은 대기 시간은 **`GetReconnectCooldownRemaining()`** 으로 확인할 수 있습니다.
+
 ---
 
 ## 🔐 보안 모델 (Security Model)
@@ -290,7 +296,7 @@ Hermes 서버 저장소의 `README.md` "작은 모델 주의사항" 절과
 "C:/Program Files/Epic Games/UE_5.8/Engine/Build/BatchFiles/Build.bat" HermesAgentNPCEditor Win64 Development -Project="<YourProject>.uproject" -WaitMutex
 ```
 
-### Automation Unit Test 무인 실행 (27/27 PASS)
+### Automation Unit Test 무인 실행 (30/30 PASS)
 ```cmd
 "C:/Program Files/Epic Games/UE_5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe" "<YourProject>.uproject" -ExecCmds="Automation RunTests Hermes; Quit" -unattended -nopause -nullrhi
 ```
