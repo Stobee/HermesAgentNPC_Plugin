@@ -12,6 +12,7 @@
 THIRD_PARTY_INCLUDES_START
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
+#include <openssl/sha.h>
 THIRD_PARTY_INCLUDES_END
 #undef UI
 #endif
@@ -194,28 +195,61 @@ bool FHermesTlsTransport::Connect(const FHermesWorkerConfig& Config, const FInte
 bool FHermesTlsTransport::CreateContext(const FHermesTlsConfig& Tls, const FString& ServerName)
 {
 	ISslManager& Mgr = FSslModule::Get().GetSslManager();
-	if (!Mgr.InitializeSsl())
-	{
-		UE_LOG(LogHermes, Error, TEXT("failed to initialize SSL"));
-		return false;
-	}
-	bSslInitialized = true;
+
+	// InitializeSsl() 이 거짓을 돌려주는 것은 실패가 아니다.
+	//
+	// 엔진 구현(FSslManager::InitializeSsl)은 본체 전체가
+	// `#if IS_MONOLITHIC || UE_MERGED_MODULES` 안에 있고, 그 밖에서는 false 로
+	// 초기화된 값을 그대로 돌려준다. 모듈러 빌드에서는 OpenSSL 이 여러
+	// 라이브러리에 정적 링크되어 SSL 모듈이 전역 초기화를 맡지 않기 때문이며,
+	// "초기화하지 않았다"는 뜻이지 "쓸 수 없다"는 뜻이 아니다.
+	//
+	// 이것을 치명적 오류로 다루면 **에디터와 PIE 에서 TLS 가 영영 붙지 못한다**.
+	// 모놀리식인 Shipping 에서만 동작하므로 개발 중에는 드러나지도 않는다.
+	// 실제로 그 상태였고, 실서버 TLS 연동에서 처음 드러났다.
+	//
+	// 돌려받은 값은 ShutdownSsl() 짝을 맞추는 데만 쓴다. 초기화하지 않았다면
+	// 내려놓을 것도 없다.
+	bSslInitialized = Mgr.InitializeSsl();
 
 	const HermesTls::EVerifyMode Mode =
 		HermesTls::ResolveVerifyMode(Tls.PinnedPublicKeyHashes, Tls.PrivateCaPath);
 
-	FSslContextCreateOptions Options;
-	Options.MinimumProtocol = ESslTlsProtocol::TLSv1_2;   // TLS 1.2 미만 비활성화
-	Options.bAllowCompression = false;                    // CRIME 류 회피
-	Options.bAddCertificates = (Mode != HermesTls::EVerifyMode::PinnedKey);
-
-	Ctx = Mgr.CreateSslContext(Options);
+	// SSL_CTX 를 엔진의 ISslManager 로 만들지 않고 OpenSSL 로 직접 만든다.
+	//
+	// FSslManager::CreateSslContext() 는 본체 전체가
+	// `#if IS_MONOLITHIC || UE_MERGED_MODULES` 안에 있어 모듈러 빌드에서는
+	// 무조건 nullptr 을 돌려준다. DestroySslContext 도 마찬가지다. 즉 그 API 는
+	// 모놀리식 타깃 전용이고, **에디터와 PIE 에서는 TLS 를 만들 수 없다.**
+	// 그것을 쓰는 한 개발 중에는 TLS 를 한 번도 시험할 수 없다.
+	//
+	// OpenSSL 은 이 모듈에 직접 링크되어 있으므로(Build.cs 의
+	// AddEngineThirdPartyPrivateStaticDependencies) 직접 만들면 빌드 형태와
+	// 무관하게 동작한다. 인증서 관리자(ISslCertificateManager)는 게이팅되어
+	// 있지 않으므로 핀 검증 경로는 그대로 쓴다.
+	Ctx = SSL_CTX_new(TLS_client_method());
 	if (!Ctx)
 	{
+		UE_LOG(LogHermes, Error, TEXT("SSL_CTX_new failed"));
 		return false;
 	}
 
+	// TLS 1.2 미만 비활성화. 엔진 구현의 SSL_OP_NO_* 비트 나열과 같은 효과이며
+	// 이쪽이 의도가 분명하다.
+	if (SSL_CTX_set_min_proto_version(Ctx, TLS1_2_VERSION) != 1)
+	{
+		UE_LOG(LogHermes, Error, TEXT("failed to require TLS 1.2 or newer"));
+		return false;
+	}
+	SSL_CTX_set_options(Ctx, SSL_OP_NO_COMPRESSION);   // CRIME 류 회피
+
 	ISslCertificateManager& Certs = FSslModule::Get().GetCertificateManager();
+
+	// 핀 모드가 아니면 신뢰 저장소를 붙인다. 엔진의 bAddCertificates 와 같다.
+	if (Mode != HermesTls::EVerifyMode::PinnedKey)
+	{
+		Certs.AddCertificatesToSslContext(Ctx);
+	}
 
 	switch (Mode)
 	{
@@ -288,25 +322,57 @@ bool FHermesTlsTransport::VerifyPinnedKey(const FString& ServerName) const
 		return false;
 	}
 
-	X509_STORE_CTX* StoreCtx = X509_STORE_CTX_new();
-	if (!StoreCtx)
-	{
-		return false;
-	}
+	// 다이제스트를 직접 만들어 넘긴다.
+	//
+	// 엔진의 X509_STORE_CTX 오버로드는 X509_STORE_CTX_get_chain() — 즉
+	// X509_verify_cert() 가 채워 놓는 **검증된 체인** — 을 읽는다. 핀 모드는
+	// 체인 검증을 돌리지 않으므로(자체 서명을 허용하는 것이 핀의 목적이다)
+	// 그 체인은 언제나 비어 있고, 결과는 항상 "핀 불일치"가 된다.
+	// X509_STORE_CTX_init 이 채우는 것은 untrusted 체인이라 소용이 없다.
+	//
+	// 다이제스트 기준은 엔진과 동일하다 — SubjectPublicKeyInfo(DER) 의 SHA-256.
+	TArray<TArray<uint8, TFixedAllocator<ISslCertificateManager::PUBLIC_KEY_DIGEST_SIZE>>> Digests;
 
-	STACK_OF(X509)* Chain = SSL_get_peer_cert_chain(Ssl);
+	auto AddDigest = [&Digests](X509* Cert)
+	{
+		if (!Cert)
+		{
+			return;
+		}
+		const int Length = i2d_X509_PUBKEY(X509_get_X509_PUBKEY(Cert), nullptr);
+		if (Length <= 0)
+		{
+			return;   // 공개키가 없는 인증서
+		}
+		TArray<uint8> PubKey;
+		PubKey.AddUninitialized(Length);
+		uint8* Ptr = PubKey.GetData();
+		i2d_X509_PUBKEY(X509_get_X509_PUBKEY(Cert), &Ptr);
+
+		TArray<uint8, TFixedAllocator<ISslCertificateManager::PUBLIC_KEY_DIGEST_SIZE>> Digest;
+		Digest.AddUninitialized(ISslCertificateManager::PUBLIC_KEY_DIGEST_SIZE);
+		SHA256(PubKey.GetData(), PubKey.Num(), Digest.GetData());
+		Digests.Add(MoveTemp(Digest));
+	};
+
 	X509* Leaf = SSL_get_peer_certificate(Ssl);
-	if (!Leaf)
+	AddDigest(Leaf);
+	if (Leaf)
 	{
-		X509_STORE_CTX_free(StoreCtx);
-		return false;
+		X509_free(Leaf);
 	}
 
-	const bool bInit = X509_STORE_CTX_init(StoreCtx, nullptr, Leaf, Chain) == 1;
-	const bool bOk = bInit && Certs.VerifySslCertificates(StoreCtx, ServerName);
+	// 클라이언트 쪽에서는 이 스택에 리프도 포함되지만, 중간 인증서로 핀을 잡는
+	// 구성도 있으므로 전부 넣는다. 중복은 무해하다 — 하나라도 맞으면 통과다.
+	if (STACK_OF(X509)* Chain = SSL_get_peer_cert_chain(Ssl))
+	{
+		for (int32 Index = 0; Index < sk_X509_num(Chain); ++Index)
+		{
+			AddDigest(sk_X509_value(Chain, Index));
+		}
+	}
 
-	X509_free(Leaf);
-	X509_STORE_CTX_free(StoreCtx);
+	const bool bOk = Digests.Num() > 0 && Certs.VerifySslCertificates(Digests, ServerName);
 
 	if (!bOk)
 	{
@@ -329,7 +395,9 @@ void FHermesTlsTransport::Close()
 	}
 	if (Ctx)
 	{
-		FSslModule::Get().GetSslManager().DestroySslContext(Ctx);
+		// SSL_CTX_new 로 직접 만들었으므로 직접 해제한다. 엔진의
+		// DestroySslContext 는 모듈러 빌드에서 아무 일도 하지 않아 누수가 된다.
+		SSL_CTX_free(Ctx);
 		Ctx = nullptr;
 	}
 	if (bSslInitialized)
