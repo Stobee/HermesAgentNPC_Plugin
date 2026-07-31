@@ -1,4 +1,4 @@
-﻿# Hermes UE5 클라이언트 — 작업 진행 기록
+# Hermes UE5 클라이언트 — 작업 진행 기록
 
 > 마지막 업데이트: 2026-07-31 (스텁 14/14 + 실서버 연동 검증, 클라이언트·서버 버그 수정)
 > 브랜치: `master`
@@ -74,7 +74,7 @@
 - [ ] **위젯이 눈에 어떻게 보이는지** — 동작은 전부 자동 검증되지만 레이아웃·글자
       크기·창 위치는 로그로 드러나지 않는다. PIE 에서 한 번 보면 되는 확인이다
 
-## 자동화 테스트 결과 (총 28종 전원 PASS)
+## 자동화 테스트 결과 (총 30종 전원 PASS)
 
 - `Hermes.ActionParams.Coordinate` : PASS
 - `Hermes.ActionParams.ItemId` : PASS
@@ -98,10 +98,12 @@
 - `Hermes.Protocol.Messages.ParseIdentified` : PASS
 - `Hermes.Protocol.Messages.Ping` : PASS
 - `Hermes.RateLimiter.TokenBucket` : PASS
+- `Hermes.Reconnect.Cooldown` : PASS
+- `Hermes.Reconnect.SuspendState` : PASS
 - `Hermes.Settings.CommandLineOverride` : PASS
 - `Hermes.TlsPolicy.ServerName` : PASS
 - `Hermes.TlsPolicy.UseTls` : PASS
 - `Hermes.TlsPolicy.VerifyMode` : PASS
 - `Hermes.Trace.FormatFrame` : PASS
 - `Hermes.Util.PushBounded` : PASS
-- `EXIT CODE: 0` (28/28 PASS, 2026-07-31 재확인)
+- `EXIT CODE: 0` (30/30 PASS, 2026-07-31 재확인)

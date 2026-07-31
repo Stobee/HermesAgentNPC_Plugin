@@ -81,7 +81,7 @@ Task 1~3 ì€ ìŠ¤íŽ™ ì¤€ìˆ˜Â·í’ˆì§ˆ ë¦¬ë·°ë¥¼ ëª¨ë‘ í†µê³¼í–ˆë‹¤.
 
 ## âœ… ìž¬ê°œ ì§€ì  â€” ê¹¨ë—í•œ ìƒíƒœ
 
-**í”ŒëŸ¬ê·¸ì¸ C++ ì½”ë“œ ë° ì‚¬ì–‘ ë¬¸ì„œ ì™„ì„±.** 28ì¢… ìžë™í™” í…ŒìŠ¤íŠ¸ ì „ì› PASS (`EXIT CODE: 0`).
+**í”ŒëŸ¬ê·¸ì¸ C++ ì½”ë“œ ë° ì‚¬ì–‘ ë¬¸ì„œ ì™„ì„±.** 30ì¢… ìžë™í™” í…ŒìŠ¤íŠ¸ ì „ì› PASS (`EXIT CODE: 0`).
 2026-07-31ì— ìŠ¤í… ì„œë²„(`hermes_stub_server.py`)ì— ê²Œìž„ì„ ì‹¤ì œë¡œ ë¶™ì—¬ **14ê°œ ì‹œë‚˜ë¦¬ì˜¤
 ì „ë¶€ë¥¼ ì‚¬ëžŒ ê°œìž… ì—†ì´ ì‹¤í–‰ ê²€ì¦í–ˆë‹¤.** `move_to` ì˜ ì‹¤ì œ ì´ë™ê³¼ ë„ì°© í†µì§€ê¹Œì§€ í¬í•¨í•œë‹¤.
 ì‹¤í–‰ ëª…ë ¹ê³¼ ê´€ì¸¡ ì¦ê±°ëŠ” `docs/testing/manual-verification-setup.md` Â§4.0.
@@ -252,7 +252,7 @@ c2a4d28  docs: ìŠ¤í… ì„œë²„ ì™€ì´ì–´ ê²€ì¦ ì™„ë£Œ ë° ë¸Œëžœì¹˜ ì •ë¦¬
 
 ## í…ŒìŠ¤íŠ¸ ê¸°ì¤€ì„ 
 
-**2026-07-31 í™•ì¸: 28ì¢… ì „ë¶€ í†µê³¼ (exit code 0).**
+**2026-07-31 í™•ì¸: 30ì¢… ì „ë¶€ í†µê³¼ (exit code 0).**
 
 ```
 Hermes.ActionParams.Coordinate
@@ -277,6 +277,8 @@ Hermes.Protocol.Messages.IdentifyV2
 Hermes.Protocol.Messages.ParseIdentified
 Hermes.Protocol.Messages.Ping
 Hermes.RateLimiter.TokenBucket
+Hermes.Reconnect.Cooldown
+Hermes.Reconnect.SuspendState
 Hermes.Settings.CommandLineOverride
 Hermes.TlsPolicy.ServerName
 Hermes.TlsPolicy.UseTls
@@ -300,8 +302,8 @@ Hermes.Util.PushBounded
 .\docs\testing\run-headless-verification.ps1 -Scenario session_taken_over -Seconds 70
 ```
 
-### ÆÐÅ°Â¡ ¿¡·¯ ±â·Ï ¹× Á¶Ä¡ ³»¿ë
-1. **UHT (UnrealHeaderTool) ¿¡·¯**: HermesNPCCharacter.hÀÇ Inventory ÇÁ·ÎÆÛÆ¼(BlueprintReadOnly)¿¡ Category°¡ ÁöÁ¤µÇ¾î ÀÖÁö ¾Ê¾Æ ¿£Áø ÇÃ·¯±×ÀÎ ÆÐÅ°Â¡ Á¤Ã¥ À§¹ÝÀ¸·Î ºôµå¿¡ ½ÇÆÐÇß½À´Ï´Ù. -> Category=Hermes`¸¦ Ãß°¡ÇÏ¿© ÇØ°áÇß½À´Ï´Ù.
-2. **¸ðµâ ¸ÅÅ©·Î ¿¡·¯**: HermesAgentNPC.cpp¿¡¼­ ÇÃ·¯±×ÀÎ ¸ðµâÀÓ¿¡µµ ºÒ±¸ÇÏ°í IMPLEMENT_PRIMARY_GAME_MODULEÀ» »ç¿ëÇÏ°í ÀÖ¾ú½À´Ï´Ù. ÀÌ´Â ÀÏ¹Ý ÇÁ·ÎÁ§Æ®¿¡¼­´Â ºôµåµÇÁö¸¸ ÇÃ·¯±×ÀÎ ÆÐÅ°Â¡ ½Ã¿¡´Â IMPLEMENT_MODULEÀ» »ç¿ëÇØ¾ß ÇÏ¹Ç·Î ÄÄÆÄÀÏ ¿¡·¯(unknown override specifier)¸¦ ¹ß»ý½ÃÄ×½À´Ï´Ù. -> IMPLEMENT_MODULE(FDefaultModuleImpl, HermesAgentNPC);·Î ¼öÁ¤ÇÏ¿© ÇØ°áÇß½À´Ï´Ù.
+### ï¿½ï¿½Å°Â¡ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½Ä¡ ï¿½ï¿½ï¿½ï¿½
+1. **UHT (UnrealHeaderTool) ï¿½ï¿½ï¿½ï¿½**: HermesNPCCharacter.hï¿½ï¿½ Inventory ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ¼(BlueprintReadOnly)ï¿½ï¿½ Categoryï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ç¾ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ê¾ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ã·ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å°Â¡ ï¿½ï¿½Ã¥ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½å¿¡ ï¿½ï¿½ï¿½ï¿½ï¿½ß½ï¿½ï¿½Ï´ï¿½. -> Category=Hermes`ï¿½ï¿½ ï¿½ß°ï¿½ï¿½Ï¿ï¿½ ï¿½Ø°ï¿½ï¿½ß½ï¿½ï¿½Ï´ï¿½.
+2. **ï¿½ï¿½ï¿½ ï¿½ï¿½Å©ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½**: HermesAgentNPC.cppï¿½ï¿½ï¿½ï¿½ ï¿½Ã·ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ó¿ï¿½ï¿½ï¿½ ï¿½Ò±ï¿½ï¿½Ï°ï¿½ IMPLEMENT_PRIMARY_GAME_MODULEï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½Ö¾ï¿½ï¿½ï¿½ï¿½Ï´ï¿½. ï¿½Ì´ï¿½ ï¿½Ï¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ã·ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å°Â¡ ï¿½Ã¿ï¿½ï¿½ï¿½ IMPLEMENT_MODULEï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ø¾ï¿½ ï¿½Ï¹Ç·ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½(unknown override specifier)ï¿½ï¿½ ï¿½ß»ï¿½ï¿½ï¿½ï¿½×½ï¿½ï¿½Ï´ï¿½. -> IMPLEMENT_MODULE(FDefaultModuleImpl, HermesAgentNPC);ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï¿ï¿½ ï¿½Ø°ï¿½ï¿½ß½ï¿½ï¿½Ï´ï¿½.
 
-ÇöÀç À§ ¹®Á¦µéÀº ¸ðµÎ ¼öÁ¤ ÈÄ master¿¡ º´ÇÕ ¿Ï·áµÇ¾úÀ¸¸ç, ÆÐÅ°Â¡ ½ºÅ©¸³Æ® ½ÇÇà ½Ã UnrealEditor Å¸°Ù ºôµå´Â Åë°úÇÏ°í UnrealGame Å¸°Ù ºôµå°¡ Á¤»ó ÁøÇà ÁßÀÌ¾ú½À´Ï´Ù.
+ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ masterï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ï·ï¿½Ç¾ï¿½ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½Å°Â¡ ï¿½ï¿½Å©ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ UnrealEditor Å¸ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ UnrealGame Å¸ï¿½ï¿½ ï¿½ï¿½å°¡ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ì¾ï¿½ï¿½ï¿½ï¿½Ï´ï¿½.
