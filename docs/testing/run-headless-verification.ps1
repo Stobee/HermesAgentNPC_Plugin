@@ -25,6 +25,10 @@ param(
     # 실제 서버에 붙는다. 스텁을 띄우지 않는다. 예: -Endpoint 192.168.0.111:8770
     # 이때 -Scenario 는 무시된다.
     [string]$Endpoint,
+    # TLS 사용 여부. 지정하지 않으면 스텁 모드는 평문, -Endpoint 모드는 ini 를 따른다.
+    # 스텁은 평문만 받고 실서버는 TLS 인 경우가 많아 매번 ini 를 고치지 않도록 둔다.
+    [ValidateSet("on", "off")]
+    [string]$Tls,
     # 게임을 몇 초 띄워 둘지. 사망 판정(PeerTimeoutSeconds, 기본 60초)을 보려면 넉넉히.
     [int]$Seconds = 60,
     # 신규 신원 발급 경로를 보려면 SaveGame 을 지운다.
@@ -68,7 +72,9 @@ if ($Endpoint) {
     $targetHost = $parts[0]
     $targetPort = [int]$parts[1]
     Write-Host "[harness] 실서버 모드 -- $($targetHost):$targetPort (스텁을 띄우지 않는다)"
-    Write-Host "[harness] TLS 는 커맨드라인으로 못 바꾼다. Config/DefaultGame.ini 의 bUseTLS 를 확인할 것"
+    if (-not $Tls) {
+        Write-Host "[harness] TLS 는 Config/DefaultGame.ini 의 bUseTLS 를 따른다 (-Tls on|off 로 덮을 수 있다)"
+    }
 } else {
     $stub = Start-Process -FilePath "py" -ArgumentList @($stubPy, "--scenario", $Scenario) `
             -RedirectStandardOutput $stubLog -RedirectStandardError "$stubLog.err" `
@@ -85,6 +91,14 @@ $ueArgs = @(
     "-LogCmds=`"LogHermes Verbose`"", "-abslog=`"$ueLog`""
 )
 if ($Exec) { $ueArgs += "-ExecCmds=`"$Exec`"" }
+
+# 스텁은 평문만 받는다. ini 가 TLS 로 켜져 있어도 스텁 모드에서는 꺼야 붙는다.
+$tlsChoice = $Tls
+if (-not $tlsChoice -and -not $Endpoint) { $tlsChoice = "off" }
+if ($tlsChoice) {
+    $ueArgs += ("-HermesUseTLS=" + $(if ($tlsChoice -eq "on") { "1" } else { "0" }))
+    Write-Host "[harness] TLS = $tlsChoice (커맨드라인 오버라이드)"
+}
 $game = Start-Process -FilePath $ue -ArgumentList $ueArgs -NoNewWindow -PassThru
 Write-Host "[harness] game pid=$($game.Id), running for $Seconds s"
 

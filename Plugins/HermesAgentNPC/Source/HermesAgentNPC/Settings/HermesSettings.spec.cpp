@@ -71,5 +71,42 @@ bool FHermesSettingsCommandLineTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("both port"), Port, 1234);
 	}
 
+	// TLS 도 덮을 수 있어야 한다.
+	//
+	// 스텁 서버는 평문이고 실서버는 TLS 라, 이것이 없으면 검증할 때마다
+	// Config/DefaultGame.ini 를 고쳐야 한다. 고치는 순간 스텁 시나리오 14종이
+	// 전부 막히므로 실제로 문제가 된다.
+	{
+		bool bUseTLS = true;
+		UHermesSettings::ApplyTlsOverride(TEXT("-HermesUseTLS=0"), bUseTLS);
+		TestFalse(TEXT("0 이면 끈다"), bUseTLS);
+
+		bUseTLS = false;
+		UHermesSettings::ApplyTlsOverride(TEXT("-HermesUseTLS=1"), bUseTLS);
+		TestTrue(TEXT("1 이면 켠다"), bUseTLS);
+
+		bUseTLS = true;
+		UHermesSettings::ApplyTlsOverride(TEXT("-HermesUseTLS=false"), bUseTLS);
+		TestFalse(TEXT("false 도 받는다"), bUseTLS);
+
+		bUseTLS = false;
+		UHermesSettings::ApplyTlsOverride(TEXT("-HermesUseTLS=true"), bUseTLS);
+		TestTrue(TEXT("true 도 받는다"), bUseTLS);
+	}
+
+	// 인자가 없으면 ini 값을 유지한다.
+	{
+		bool bUseTLS = true;
+		UHermesSettings::ApplyTlsOverride(TEXT("-SomeOtherFlag"), bUseTLS);
+		TestTrue(TEXT("인자 없으면 유지"), bUseTLS);
+	}
+
+	// 해석할 수 없는 값은 무시한다. 오타로 평문 통신이 되면 안 된다.
+	{
+		bool bUseTLS = true;
+		UHermesSettings::ApplyTlsOverride(TEXT("-HermesUseTLS=maybe"), bUseTLS);
+		TestTrue(TEXT("알 수 없는 값은 무시"), bUseTLS);
+	}
+
 	return true;
 }

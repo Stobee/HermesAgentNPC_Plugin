@@ -125,6 +125,17 @@ public:
 	 * FCommandLine::Get()을 넘길 뿐이다. 테스트가 임의 문자열로 직접 호출한다.
 	 * 조건에 맞을 때만 InOut 인자를 덮어쓴다.
 	 */
+	/**
+	 * TLS 사용 여부의 최종 값. `-HermesUseTLS=0/1` 로 덮을 수 있다.
+	 *
+	 * 스텁 서버는 평문이고 실서버는 TLS 라, 이것이 없으면 검증할 때마다 ini 를
+	 * 고쳐야 하고 그 순간 반대쪽 검증이 전부 막힌다.
+	 */
+	bool GetResolvedUseTLS() const;
+
+	/** 위 오버라이드의 순수 로직. Shipping 에서는 아무것도 하지 않는다. */
+	static void ApplyTlsOverride(const TCHAR* CmdLine, bool& InOutUseTLS);
+
 	static void ApplyCommandLineOverrides(const TCHAR* CmdLine,
 	                                      FString& InOutHost, int32& InOutPort);
 };

@@ -34,9 +34,48 @@ void UHermesSettings::ApplyCommandLineOverrides(const TCHAR* CmdLine,
 #endif
 }
 
+void UHermesSettings::ApplyTlsOverride(const TCHAR* CmdLine, bool& InOutUseTLS)
+{
+#if UE_BUILD_SHIPPING
+	// Host/Port 와 같은 이유로 배포 빌드에서는 받지 않는다. 어차피
+	// HermesTls::ResolveUseTls 가 Shipping 에서 TLS 를 강제하므로 이중 방어다.
+	(void)CmdLine; (void)InOutUseTLS;
+	return;
+#else
+	if (!CmdLine)
+	{
+		return;
+	}
+
+	FString Raw;
+	if (!FParse::Value(CmdLine, TEXT("HermesUseTLS="), Raw))
+	{
+		return;
+	}
+
+	const FString Value = Raw.TrimStartAndEnd().ToLower();
+	if (Value == TEXT("1") || Value == TEXT("true") || Value == TEXT("yes") || Value == TEXT("on"))
+	{
+		InOutUseTLS = true;
+	}
+	else if (Value == TEXT("0") || Value == TEXT("false") || Value == TEXT("no") || Value == TEXT("off"))
+	{
+		InOutUseTLS = false;
+	}
+	// 해석할 수 없는 값은 ini 를 유지한다. 오타 하나로 평문 통신이 되면 안 된다.
+#endif
+}
+
 void UHermesSettings::GetResolvedEndpoint(FString& OutHost, int32& OutPort) const
 {
 	OutHost = Host;
 	OutPort = Port;
 	ApplyCommandLineOverrides(FCommandLine::Get(), OutHost, OutPort);
+}
+
+bool UHermesSettings::GetResolvedUseTLS() const
+{
+	bool bResolved = bUseTLS;
+	ApplyTlsOverride(FCommandLine::Get(), bResolved);
+	return bResolved;
 }

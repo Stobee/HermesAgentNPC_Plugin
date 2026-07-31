@@ -56,8 +56,9 @@ void UHermesConnectionSubsystem::Initialize(FSubsystemCollectionBase& Collection
 #else
 	constexpr bool bShipping = false;
 #endif
-	Cfg.Tls.bUseTLS = HermesTls::ResolveUseTls(Settings->bUseTLS, bShipping);
-	if (Settings->bUseTLS != Cfg.Tls.bUseTLS)
+	const bool bRequestedTls = Settings->GetResolvedUseTLS();   // ini + 커맨드라인
+	Cfg.Tls.bUseTLS = HermesTls::ResolveUseTls(bRequestedTls, bShipping);
+	if (bRequestedTls != Cfg.Tls.bUseTLS)
 	{
 		UE_LOG(LogHermes, Error,
 			TEXT("bUseTLS=false is ignored in Shipping builds; TLS is enforced"));
