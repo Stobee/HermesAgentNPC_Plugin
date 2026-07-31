@@ -17,13 +17,13 @@
 | 2 — 입력 강건성 | Task 4~8 | ✅ **완료** |
 | 3 — 프로토콜 v2 코드 | Task 9~13e | ✅ **완료** |
 | 4 — TLS | Task 14~16 | ✅ **완료** |
-| 5 — 문서·검증 | Task 18~19 | ✅ **완료** (26/26 자동화 테스트 + 스텁 13/13 실행 검증) |
+| 5 — 문서·검증 | Task 18~19 | ✅ **완료** (27/27 자동화 테스트 + 스텁 13/13 실행 검증) |
 | 버그 수정 | Task 20~22 | ✅ **완료** (재연결 identify 누락 / 대화창 입력 / 검증 자동화) |
 | 실서버 준비 | Task 23 | ✅ **완료** (프레임 트레이스 / `-Endpoint` 모드 / TLS 절차) |
 
 ## ✅ 재개 지점 — 깨끗한 상태
 
-**플러그인 C++ 코드 및 사양 문서 완성.** 26종 자동화 테스트 전원 PASS (`EXIT CODE: 0`).
+**플러그인 C++ 코드 및 사양 문서 완성.** 27종 자동화 테스트 전원 PASS (`EXIT CODE: 0`).
 2026-07-31에 스텁 서버(`hermes_stub_server.py`)에 게임을 실제로 붙여 **13개 시나리오
 전부를 사람 개입 없이 실행 검증했다.** `move_to` 의 실제 이동과 도착 통지까지 포함한다.
 실행 명령과 관측 증거는 `docs/testing/manual-verification-setup.md` §4.0.
@@ -110,6 +110,19 @@
 "연결 수 대비 identify 수" 경고. 자세한 기록은
 `docs/testing/manual-verification-setup.md` §7.1.
 
+### (Task 24) 자발 발화가 화면에 닿지 못했다
+
+`action_event` 이후 서버가 먼저 거는 말(`chat_response` **id 없음**, 스펙 §4.4 는
+`id` 를 optional 로 둔다)을 위젯이 통째로 버렸다. 상관 규칙이 `Id != LastSentChatId`
+하나뿐이라 대응하는 발화가 없는 자발 발화는 언제나 걸렸다. 실서버에서
+`ignoring stale chat_response for ''` 로 관측되었다.
+
+판정을 `HermesChatCorrelation` 순수 함수로 분리했다 — 응답은 id 가 없으면 표시하고,
+델타는 id 가 required 이므로(§4.9) 없으면 버린다. 같은 자리에서 두 번째 결함도
+나왔다: **발화 전에는 `LastSentChatId` 도 비어 있어** id 없는 델타가 통과했다.
+
+회귀 감시선: `Hermes.Chat.Correlation`, 스텁 시나리오 `unprompted_speech`. §7.6.
+
 ## 이 프로젝트의 위치
 
 플러그인은 **별도로 패키징해 내보낸다.** 이 저장소는 그 플러그인의 정상 구동을
@@ -181,7 +194,7 @@ c2a4d28  docs: 스텁 서버 와이어 검증 완료 및 브랜치 정리
 
 ## 테스트 기준선
 
-**2026-07-31 확인: 26종 전부 통과 (exit code 0).**
+**2026-07-31 확인: 27종 전부 통과 (exit code 0).**
 
 ```
 Hermes.ActionParams.Coordinate
@@ -189,6 +202,7 @@ Hermes.ActionParams.ItemId
 Hermes.ActionParams.Quantity
 Hermes.Actions.Dispatcher.Rebind
 Hermes.Actions.Dispatcher.Route
+Hermes.Chat.Correlation
 Hermes.Connection.Edge
 Hermes.Connection.ErrorPolicy
 Hermes.Inventory.AddRemove

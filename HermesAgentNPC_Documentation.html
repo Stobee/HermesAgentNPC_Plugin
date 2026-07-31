@@ -443,6 +443,7 @@
             <div class="nav-title">사용법 & 빌드</div>
             <ul class="nav-links">
                 <li><a href="#plugin-integration">타 프로젝트 적용 가이드</a></li>
+                <li><a href="#small-model">NPC가 움직이지 않을 때</a></li>
                 <li><a href="#build-test">빌드 & 자동화 테스트</a></li>
                 <li><a href="#checklist">통합 검증 체크리스트</a></li>
             </ul>
@@ -841,10 +842,62 @@
             </table>
         </section>
 
-        <!-- 8. 타 프로젝트 적용 가이드 -->
-        <section id="plugin-integration" class="doc-section">
+        <!-- 8. 작은 모델 주의 -->
+        <section id="small-model" class="doc-section">
             <div class="section-header">
                 <div class="section-icon">08</div>
+                <h2 class="section-title">NPC가 말만 하고 움직이지 않을 때 (작은 모델 주의)</h2>
+            </div>
+
+            <div class="alert warning">
+                <strong>플러그인을 의심하기 전에 서버의 모델을 먼저 확인하십시오.</strong>
+                NPC가 "이동합니다"라고 대답은 하는데 움직이지 않고 로그에 에러가 하나도 없다면,
+                대개 서버 쪽 LLM이 도구를 호출하지 않은 것입니다. 그 경우
+                <code>action_request</code> 프레임이 <strong>애초에 나가지 않으므로</strong>
+                플러그인은 실행할 것이 없습니다. 아무 잘못도 하지 않은 채 아무 일도 일어나지 않습니다.
+            </div>
+
+            <p class="card-body" style="margin-bottom: 16px;">
+                작은 모델(2B급)은 도구를 쓸 줄 알면서도 <code>tool_choice=auto</code>에서 도구 대신
+                말로 때웁니다. 서버의 기동 시 능력 게이트는 템플릿이 툴 호출을 <em>표현</em>할 수 있는지만
+                보지, 모델이 실제로 <em>호출</em>하는지는 보지 않기 때문에 게이트를 통과하고도 이 상태가 됩니다.
+            </p>
+
+            <h3>어느 쪽 문제인지 가르는 법</h3>
+            <p class="card-body" style="margin-bottom: 16px;">
+                스텁 서버로 액션 경로만 따로 돌립니다. LLM이 필요 없습니다.
+            </p>
+            <pre><code>.\docs\testing\run-headless-verification.ps1 -Scenario move_to -Seconds 55 -ResetSave `
+    -Exec "Hermes.Interact @3, Hermes.Chat @5 move please"</code></pre>
+            <p class="card-body" style="margin-bottom: 16px;">
+                아래가 보이면 <strong>플러그인은 정상</strong>이고 문제는 서버입니다.
+            </p>
+            <pre><code>&lt;&lt; action_request {move_to, location:{500,500,100}}
+&gt;&gt; action_result  {started, eta_seconds}
+&gt;&gt; action_event   {completed, arrived:true}</code></pre>
+
+            <h3>실서버에서 프레임을 눈으로 확인하기</h3>
+            <p class="card-body" style="margin-bottom: 16px;">
+                플러그인은 송수신 프레임을 <code>LogHermes</code> Verbose로 남깁니다.
+                <code>session_token</code>은 <code>***</code>로 가려집니다.
+                <code>chat_delta</code>/<code>chat_response</code>만 있고 <code>action_request</code>가
+                하나도 없다면 서버가 도구를 부르지 않은 것입니다.
+            </p>
+            <pre><code>-LogCmds="LogHermes Verbose"</code></pre>
+
+            <h3>서버 팀에 전달할 내용</h3>
+            <p class="card-body" style="margin-bottom: 16px;">
+                Hermes 서버 저장소의 <code>README.md</code> "작은 모델 주의사항" 절과
+                <code>scripts/measure_tool_call_rate.py</code>를 보시면 됩니다. 요지는
+                <strong>시스템 프롬프트에 말투·문체 지시가 한 줄이라도 들어가면 작은 모델은 도구를
+                건너뛴다</strong>는 것입니다. 실측으로 호출률이 20/20에서 0/12로 떨어졌습니다.
+            </p>
+        </section>
+
+        <!-- 9. 타 프로젝트 적용 가이드 -->
+        <section id="plugin-integration" class="doc-section">
+            <div class="section-header">
+                <div class="section-icon">09</div>
                 <h2 class="section-title">타 프로젝트 연동 (드래그 앤 드롭 가이드)</h2>
             </div>
             <div class="card" style="margin-bottom: 20px;">
@@ -880,7 +933,7 @@
         <!-- 9. 빌드 & 자동화 테스트 -->
         <section id="build-test" class="doc-section">
             <div class="section-header">
-                <div class="section-icon">09</div>
+                <div class="section-icon">10</div>
                 <h2 class="section-title">빌드 & 자동화 테스트 실행 커맨드</h2>
             </div>
             
@@ -899,7 +952,7 @@
         <!-- 10. 통합 검증 체크리스트 -->
         <section id="checklist" class="doc-section">
             <div class="section-header">
-                <div class="section-icon">10</div>
+                <div class="section-icon">11</div>
                 <h2 class="section-title">통합 검증 체크리스트</h2>
             </div>
             <div class="card">

@@ -1,6 +1,6 @@
 ﻿# Hermes UE5 클라이언트 — 작업 진행 기록
 
-> 마지막 업데이트: 2026-07-31 (스텁 13/13 실행 검증 + 버그 3건 수정 + 실서버 연동 준비)
+> 마지막 업데이트: 2026-07-31 (스텁 14/14 + 실서버 연동 검증, 클라이언트·서버 버그 수정)
 > 브랜치: `master`
 > 계획 문서: `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md`
 
@@ -37,20 +37,26 @@
 - [x] **스텁 수정** `silent_after_identify` 가 pong 을 돌려줘 침묵하지 않던 문제. §7.3
 - [x] **Task 23** 실서버 연동 준비 — 프레임 트레이스(`Hermes.Trace.FormatFrame` PASS,
       `session_token` 마스킹), 하네스 `-Endpoint` 모드, TLS 절차 문서(§8)
+- [x] **Task 24** 자발 발화(id 없는 `chat_response`) 표시 수정 — 상관 규칙을
+      `HermesChatCorrelation` 으로 분리 (`Hermes.Chat.Correlation` PASS). §7.6
+- [x] **스텁 추가** `unprompted_speech` 시나리오 — §4.4 자발 발화를 스텁으로
+      재현할 수 없던 공백을 메웠다
+- [x] **문서** 작은 모델 주의사항을 플러그인 측 문서에 추가
+      (`README.md`, `HermesAgentNPC_Documentation.html` §08)
 
-## ✅ 스텁 13개 시나리오 전부 실행 검증 (2026-07-31)
+## ✅ 스텁 14개 시나리오 전부 실행 검증 (2026-07-31)
 
 `docs/testing/run-headless-verification.ps1` 로 스텁 서버에 실제로 붙여 확인했다.
 `-game` 모드지만 `L_HermesTest` 가 그대로 로드되어 NPC·내비메시·대화 위젯이 모두
 살아 있으므로 같은 코드를 지난다. 실행 명령과 관측된 증거는
 `docs/testing/manual-verification-setup.md` §4.0 에 있다.
 
-**13/13 통과.** `happy`, `move_to`(실제 이동·`action_event{arrived}`), `unknown_command`,
+**14/14 통과.** `happy`, `move_to`(실제 이동·`action_event{arrived}`), `unknown_command`,
 `server_busy`, `error_without_id`, `stale_delta`, `interleaved_turns`, `chat_timeout`,
 `silent_after_identify`, `session_taken_over`, `unsupported_version_error`,
-`not_authorized`, `bad_frame`.
+`not_authorized`, `bad_frame`, `unprompted_speech`.
 
-이 과정에서 버그 3건(클라이언트 2건 + 스텁 1건)을 찾아 고쳤다.
+이 과정에서 버그 5건(클라이언트 3건 + 스텁 2건)을 찾아 고쳤다. 실서버 연동에서는 서버 측 버그도 함께 찾아 고쳤다(HermesLlamaServer 저장소).
 
 ## ⬜ 아직 남은 것
 
@@ -63,13 +69,14 @@
 - [ ] **에러로 인한 재연결의 백오프 부재** — 판단 필요. 배경은
       `manual-verification-setup.md` §7.4
 
-## 자동화 테스트 결과 (총 26종 전원 PASS)
+## 자동화 테스트 결과 (총 27종 전원 PASS)
 
 - `Hermes.ActionParams.Coordinate` : PASS
 - `Hermes.ActionParams.ItemId` : PASS
 - `Hermes.ActionParams.Quantity` : PASS
 - `Hermes.Actions.Dispatcher.Rebind` : PASS
 - `Hermes.Actions.Dispatcher.Route` : PASS
+- `Hermes.Chat.Correlation` : PASS
 - `Hermes.Connection.Edge` : PASS
 - `Hermes.Connection.ErrorPolicy` : PASS
 - `Hermes.Inventory.AddRemove` : PASS
@@ -91,4 +98,4 @@
 - `Hermes.TlsPolicy.VerifyMode` : PASS
 - `Hermes.Trace.FormatFrame` : PASS
 - `Hermes.Util.PushBounded` : PASS
-- `EXIT CODE: 0` (26/26 PASS, 2026-07-31 재확인)
+- `EXIT CODE: 0` (27/27 PASS, 2026-07-31 재확인)

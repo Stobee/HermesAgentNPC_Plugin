@@ -230,6 +230,59 @@ Shipping 빌드에서는 이 설정이 무시되고 TLS가 강제되며, 무시�
 
 ---
 
+## ⚠️ NPC가 말만 하고 움직이지 않는다면 (작은 모델 주의)
+
+**플러그인을 의심하기 전에 서버의 모델을 먼저 확인하십시오.**
+
+가장 흔한 오연동 증상입니다. NPC가 "이동합니다"라고 대답은 하는데 실제로는
+움직이지 않고, 로그에 에러가 하나도 없습니다. 클라이언트만 보면 정상이라
+플러그인 버그로 오인하기 쉽습니다.
+
+원인은 대개 **서버 쪽 LLM이 도구를 호출하지 않는 것**입니다. 작은 모델(2B급)은
+도구를 쓸 줄 알면서도 `tool_choice=auto`에서 도구 대신 말로 때웁니다. 그러면
+`action_request` 프레임이 **애초에 나가지 않으므로** 플러그인은 실행할 것이
+없습니다. 아무 잘못도 하지 않은 채 아무 일도 일어나지 않습니다.
+
+### 어느 쪽 문제인지 30초 만에 가르는 법
+
+```powershell
+# 스텁 서버로 액션 경로만 따로 돌린다 (LLM 불필요)
+.\docs\testing\run-headless-verification.ps1 -Scenario move_to -Seconds 55 -ResetSave `
+    -Exec "Hermes.Interact @3, Hermes.Chat @5 move please"
+```
+
+여기서 아래가 보이면 **플러그인은 정상**이고 문제는 서버입니다.
+
+```
+<< action_request {move_to, location:{500,500,100}}
+>> action_result  {started, eta_seconds}
+>> action_event   {completed, arrived:true}
+```
+
+### 실서버에서 프레임을 눈으로 확인하는 법
+
+플러그인은 송수신 프레임을 `LogHermes` Verbose로 남깁니다
+(`session_token`은 `***`로 가려집니다).
+
+```
+-LogCmds="LogHermes Verbose"
+```
+
+`chat_delta`/`chat_response`만 있고 `action_request`가 하나도 없다면 서버가
+도구를 부르지 않은 것입니다.
+
+### 서버 팀에 전달할 내용
+
+Hermes 서버 저장소의 `README.md` "작은 모델 주의사항" 절과
+`scripts/measure_tool_call_rate.py`를 보시면 됩니다. 요지는 두 가지입니다.
+
+- 기동 시 능력 게이트(`supports_tools`) 통과는 "템플릿이 툴 호출을 **표현**할 수
+  있다"는 뜻이지 "모델이 실제로 **호출**한다"는 뜻이 아닙니다.
+- 시스템 프롬프트에 말투·문체 지시가 한 줄이라도 들어가면 작은 모델은 도구를
+  건너뜁니다. 실측으로 호출률이 20/20에서 0/12로 떨어졌습니다.
+
+---
+
 ## 🧪 빌드 & 자동화 테스트 (Build & Automation Test)
 
 ### C++ 프로젝트 컴파일 (Build.bat)
@@ -237,7 +290,7 @@ Shipping 빌드에서는 이 설정이 무시되고 TLS가 강제되며, 무시�
 "C:/Program Files/Epic Games/UE_5.8/Engine/Build/BatchFiles/Build.bat" HermesAgentNPCEditor Win64 Development -Project="<YourProject>.uproject" -WaitMutex
 ```
 
-### Automation Unit Test 무인 실행 (24/24 PASS)
+### Automation Unit Test 무인 실행 (27/27 PASS)
 ```cmd
 "C:/Program Files/Epic Games/UE_5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe" "<YourProject>.uproject" -ExecCmds="Automation RunTests Hermes; Quit" -unattended -nopause -nullrhi
 ```
