@@ -299,3 +299,9 @@ Hermes.Util.PushBounded
     -Exec "Hermes.Interact @3, Hermes.Chat @5 hello"
 .\docs\testing\run-headless-verification.ps1 -Scenario session_taken_over -Seconds 70
 ```
+
+### 패키징 에러 기록 및 조치 내용
+1. **UHT (UnrealHeaderTool) 에러**: HermesNPCCharacter.h의 Inventory 프로퍼티(BlueprintReadOnly)에 Category가 지정되어 있지 않아 엔진 플러그인 패키징 정책 위반으로 빌드에 실패했습니다. -> Category=Hermes`를 추가하여 해결했습니다.
+2. **모듈 매크로 에러**: HermesAgentNPC.cpp에서 플러그인 모듈임에도 불구하고 IMPLEMENT_PRIMARY_GAME_MODULE을 사용하고 있었습니다. 이는 일반 프로젝트에서는 빌드되지만 플러그인 패키징 시에는 IMPLEMENT_MODULE을 사용해야 하므로 컴파일 에러(unknown override specifier)를 발생시켰습니다. -> IMPLEMENT_MODULE(FDefaultModuleImpl, HermesAgentNPC);로 수정하여 해결했습니다.
+
+현재 위 문제들은 모두 수정 후 master에 병합 완료되었으며, 패키징 스크립트 실행 시 UnrealEditor 타겟 빌드는 통과하고 UnrealGame 타겟 빌드가 정상 진행 중이었습니다.
