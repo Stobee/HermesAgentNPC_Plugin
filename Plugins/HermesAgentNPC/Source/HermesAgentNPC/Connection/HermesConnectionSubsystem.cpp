@@ -2,6 +2,7 @@
 #include "Connection/HermesUtil.h"
 #include "Connection/HermesLiveness.h"
 #include "Connection/HermesConnectionEdge.h"
+#include "Connection/HermesTrace.h"
 #include "Connection/HermesErrorPolicy.h"
 #include "HAL/PlatformTime.h"
 #include "Transport/HermesSocketWorker.h"
@@ -175,6 +176,9 @@ void UHermesConnectionSubsystem::SendJson(const FString& Json)
 {
 	if (Worker)
 	{
+		// 실제 서버에는 프레임을 찍어 주는 스텁 콘솔이 없다. 어긋났을 때
+		// 무엇을 보냈는지 여기서만 알 수 있다.
+		UE_LOG(LogHermes, Verbose, TEXT(">> %s"), *HermesTrace::FormatFrame(Json));
 		Worker->EnqueueOutbound(Json);
 		LastSendTime = FPlatformTime::Seconds();
 	}
@@ -282,8 +286,19 @@ bool UHermesConnectionSubsystem::Tick(float DeltaTime)
 	FString Json;
 	while (Budget-- > 0 && Worker->DequeueInbound(Json))
 	{
+		UE_LOG(LogHermes, Verbose, TEXT("<< %s"), *HermesTrace::FormatFrame(Json));
+
 		TSharedPtr<FJsonObject> Obj;
-		if (HermesJson::Parse(Json, Obj)) HandleFrame(Obj);
+		if (HermesJson::Parse(Json, Obj))
+		{
+			HandleFrame(Obj);
+		}
+		else
+		{
+			// 파싱 실패는 조용히 넘어가면 안 된다. 실서버 연동에서 가장 먼저
+			// 의심할 지점이고, 위의 트레이스와 짝을 이뤄야 원인이 보인다.
+			UE_LOG(LogHermes, Warning, TEXT("failed to parse inbound frame"));
+		}
 	}
 
 	// 연결이 성립한 동안에만 평가한다. 재연결 대기 중에는 수신이 없는 것이 정상이다.

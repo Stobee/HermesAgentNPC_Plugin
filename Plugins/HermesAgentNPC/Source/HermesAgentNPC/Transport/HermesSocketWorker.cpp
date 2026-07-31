@@ -254,6 +254,12 @@ uint32 FHermesSocketWorker::Run()
 				// bConnected 보다 먼저 올린다. 게임 스레드가 bConnected 를 참으로
 				// 본 시점에는 세대가 이미 새 값이어야 새 연결을 놓치지 않는다.
 				ConnectionGeneration.Increment();
+
+				// 연결 성립을 identify 와 독립적으로 남긴다. 둘의 개수를 비교하는
+				// 것이 "재연결마다 신원을 밝히는가" 회귀의 감시선이다.
+				UE_LOG(LogHermes, Verbose, TEXT("transport connected to %s:%d (generation %d)"),
+					*Config.Host, Config.Port, ConnectionGeneration.GetValue());
+
 				bConnected = true;
 				Backoff = Config.InitialReconnectDelay; // 성공 시 리셋
 			}
