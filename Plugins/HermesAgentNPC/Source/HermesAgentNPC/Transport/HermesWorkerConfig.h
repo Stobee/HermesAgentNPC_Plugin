@@ -23,6 +23,8 @@ struct FHermesWorkerConfig
 	int32   Port                  = 8770;
 	float   InitialReconnectDelay = 0.5f;
 	float   MaxReconnectDelay     = 30.f;
+	/** 이만큼 살아 있었던 연결만 백오프 사다리를 되돌린다. HermesBackoff 참고. */
+	float   HealthyConnectionSeconds = 5.f;
 	int32   MaxInboundQueueSize   = 1024;
 	int32   MaxOutboundQueueSize  = 256;
 

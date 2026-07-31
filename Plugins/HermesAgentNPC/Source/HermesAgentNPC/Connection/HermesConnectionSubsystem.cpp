@@ -46,6 +46,7 @@ void UHermesConnectionSubsystem::Initialize(FSubsystemCollectionBase& Collection
 	Settings->GetResolvedEndpoint(Cfg.Host, Cfg.Port);
 	Cfg.InitialReconnectDelay = Settings->InitialReconnectDelay;
 	Cfg.MaxReconnectDelay     = Settings->MaxReconnectDelay;
+	Cfg.HealthyConnectionSeconds = Settings->HealthyConnectionSeconds;
 	Cfg.MaxInboundQueueSize   = Settings->MaxInboundQueueSize;
 	Cfg.MaxOutboundQueueSize  = Settings->MaxOutboundQueueSize;
 

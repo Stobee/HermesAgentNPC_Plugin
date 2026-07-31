@@ -55,6 +55,16 @@ public:
 	UPROPERTY(EditAnywhere, config, Category="Connection|Tuning", meta=(ClampMin="1.0", ClampMax="300.0"))
 	float MaxReconnectDelay = 30.f;
 
+	/**
+	 * 이만큼(초) 살아 있었던 연결만 백오프 사다리를 초기값으로 되돌린다.
+	 *
+	 * TCP 접속 성공만으로 되돌리면, 접속은 되는데 서버가 곧바로 끊는 상황에서
+	 * 매 사이클이 성공으로 보여 재연결이 왕복 지연 속도로 돌며 서버를 두드린다.
+	 * 값을 키우면 더 보수적으로(느리게) 재연결한다.
+	 */
+	UPROPERTY(EditAnywhere, config, Category="Connection|Tuning", meta=(ClampMin="0.0", ClampMax="60.0"))
+	float HealthyConnectionSeconds = 5.f;
+
 	/** 액션 요청 응답 대기 한계(초). 초과 시 timeout 결과를 회신한다. */
 	UPROPERTY(EditAnywhere, config, Category="Connection|Tuning", meta=(ClampMin="1.0", ClampMax="120.0"))
 	float ActionTimeoutSeconds = 15.f;

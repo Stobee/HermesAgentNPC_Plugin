@@ -3,6 +3,7 @@
 #include "HermesLog.h"
 #include "Transport/HermesTlsTransport.h"
 #include "Transport/HermesPlainTransport.h"
+#include "Transport/HermesBackoff.h"
 #include "SocketSubsystem.h"
 #include "SocketTypes.h"
 #include "IPAddress.h"
@@ -227,6 +228,37 @@ uint32 FHermesSocketWorker::Run()
 {
 	float Backoff = Config.InitialReconnectDelay;
 	const float MaxBackoff = Config.MaxReconnectDelay;
+	double ConnectedAt = 0.0;
+
+	// 재시도 전 대기. 접속 실패와 "붙자마자 끊긴 연결" 을 같은 사다리로 다룬다.
+	auto WaitBeforeRetry = [this, &Backoff, MaxBackoff]()
+	{
+		const float Jitter = FMath::FRandRange(0.f, Backoff * 0.25f);
+		InterruptibleSleep(Backoff + Jitter);
+	};
+
+	// 연결이 끝났다. 얼마나 살아 있었는지로 사다리를 되돌릴지 정한다.
+	// 붙었다는 사실만으로 되돌리면 서버가 매번 즉시 끊을 때 재연결이
+	// 왕복 지연 속도로 돈다 (HermesBackoff 주석 참고).
+	auto EndConnection = [this, &Backoff, &ConnectedAt, MaxBackoff, &WaitBeforeRetry]()
+	{
+		const double Lifetime = FPlatformTime::Seconds() - ConnectedAt;
+		const bool bHealthy = HermesBackoff::WasHealthy(Lifetime, Config.HealthyConnectionSeconds);
+
+		Backoff = HermesBackoff::NextAfterDisconnect(
+			Backoff, Lifetime, Config.HealthyConnectionSeconds,
+			Config.InitialReconnectDelay, MaxBackoff);
+
+		CloseSocket();
+
+		if (!bHealthy)
+		{
+			UE_LOG(LogHermes, Verbose,
+				TEXT("connection lasted %.2fs (< %.1fs); backing off %.1fs before retry"),
+				Lifetime, Config.HealthyConnectionSeconds, Backoff);
+			WaitBeforeRetry();
+		}
+	};
 
 	while (!bStopRequested)
 	{
@@ -261,17 +293,20 @@ uint32 FHermesSocketWorker::Run()
 					*Config.Host, Config.Port, ConnectionGeneration.GetValue());
 
 				bConnected = true;
-				Backoff = Config.InitialReconnectDelay; // 성공 시 리셋
+				ConnectedAt = FPlatformTime::Seconds();
+				// 여기서 Backoff 를 되돌리지 않는다. 붙었다는 것만으로는
+				// 사다리를 초기화할 근거가 못 된다 — EndConnection 이 연결이
+				// 얼마나 살아 있었는지를 보고 정한다.
 			}
 			else
 			{
-				const float Jitter = FMath::FRandRange(0.f, Backoff * 0.25f);
-				InterruptibleSleep(Backoff + Jitter);
+				WaitBeforeRetry();
 				if (bStopRequested)
 				{
 					break;
 				}
-				Backoff = FMath::Min(Backoff * 2.f, MaxBackoff);
+				Backoff = HermesBackoff::NextAfterFailedConnect(
+					Backoff, Config.InitialReconnectDelay, MaxBackoff);
 				continue;
 			}
 		}
@@ -279,13 +314,13 @@ uint32 FHermesSocketWorker::Run()
 		if (bReconnectRequested)
 		{
 			bReconnectRequested = false;
-			CloseSocket();       // 다음 루프에서 재연결
+			EndConnection();     // 다음 루프에서 재연결
 			continue;
 		}
 
 		if (!SendAllPending() || !ReceiveAvailable())
 		{
-			CloseSocket(); // 다음 루프에서 재연결
+			EndConnection(); // 다음 루프에서 재연결
 			continue;
 		}
 		FPlatformProcess::Sleep(0.005f); // busy-wait 방지 (5ms)
