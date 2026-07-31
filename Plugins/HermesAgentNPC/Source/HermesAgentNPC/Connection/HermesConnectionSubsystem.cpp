@@ -1,6 +1,7 @@
 #include "Connection/HermesConnectionSubsystem.h"
 #include "Connection/HermesUtil.h"
 #include "Connection/HermesLiveness.h"
+#include "Connection/HermesConnectionEdge.h"
 #include "Connection/HermesErrorPolicy.h"
 #include "HAL/PlatformTime.h"
 #include "Transport/HermesSocketWorker.h"
@@ -222,38 +223,58 @@ void UHermesConnectionSubsystem::FlushPendingChats()
 	PendingChats.Reset();
 }
 
+void UHermesConnectionSubsystem::HandleConnectionLost(double NowSeconds)
+{
+	bIdentified = false;
+
+	// 진행 중이던 발화를 모두 실패 처리한다. 재연결 후 서버가 이전 발화를
+	// 이어서 응답하더라도 그 id 는 추적 대상이 아니므로 위젯의 상관 규칙이 무시한다.
+	TArray<FString> Abandoned;
+	InFlightChats.CollectTimedOut(NowSeconds, 0.f, Abandoned);
+	for (const FString& Id : Abandoned)
+	{
+		OnChatFailed.Broadcast(Id, TEXT("disconnected"));
+	}
+	InFlightChats.Clear();
+
+	OnConnectionStateChanged.Broadcast(false);
+}
+
+void UHermesConnectionSubsystem::HandleConnectionEstablished(double NowSeconds)
+{
+	bIdentified  = false;
+	LastRecvTime = NowSeconds;   // 초기화하지 않으면 연결 직후 즉시 사망 판정이 난다
+	LastSendTime = NowSeconds;
+	SendIdentify();
+}
+
 bool UHermesConnectionSubsystem::Tick(float DeltaTime)
 {
 	if (!Worker) return true;
 
-	// 연결 엣지 감지: 새로 연결되면 재-identify 하고 생존 타이머를 초기화한다.
+	// 연결 전이 감지. 불린만 보면 두 틱 사이에 끝난 재연결을 놓치므로
+	// 워커의 연결 세대를 함께 본다. 판정은 HermesConnectionEdge 가 한다.
 	const bool bNow = Worker->IsConnected();
+	const uint32 CurGen = Worker->GetConnectionGeneration();
 	const double NowSeconds = FPlatformTime::Seconds();
 
-	if (bNow && !bWasConnected)
-	{
-		bIdentified  = false;
-		LastRecvTime = NowSeconds;   // 초기화하지 않으면 연결 직후 즉시 사망 판정이 난다
-		LastSendTime = NowSeconds;
-		SendIdentify();
-	}
-	if (!bNow && bWasConnected)
-	{
-		bIdentified = false;
+	using HermesConnectionEdge::EDecision;
+	const EDecision Edge = HermesConnectionEdge::Evaluate(
+		bWasConnected, SeenConnectionGeneration, bNow, CurGen);
 
-		// 진행 중이던 발화를 모두 실패 처리한다. 재연결 후 서버가 이전 발화를
-		// 이어서 응답하더라도 그 id 는 추적 대상이 아니므로 위젯의 상관 규칙이 무시한다.
-		TArray<FString> Abandoned;
-		InFlightChats.CollectTimedOut(NowSeconds, 0.f, Abandoned);
-		for (const FString& Id : Abandoned)
-		{
-			OnChatFailed.Broadcast(Id, TEXT("disconnected"));
-		}
-		InFlightChats.Clear();
-
-		OnConnectionStateChanged.Broadcast(false);
-	}
 	bWasConnected = bNow;
+	SeenConnectionGeneration = CurGen;
+
+	// 재연결은 끊김 정리와 새 연결 처리를 모두 해야 한다. 순서가 중요하다 —
+	// 정리를 뒤에 하면 방금 보낸 identify 를 스스로 지운다.
+	if (Edge == EDecision::Closed || Edge == EDecision::Reopened)
+	{
+		HandleConnectionLost(NowSeconds);
+	}
+	if (Edge == EDecision::Opened || Edge == EDecision::Reopened)
+	{
+		HandleConnectionEstablished(NowSeconds);
+	}
 
 	// 한 틱이 무한정 길어지지 않게 예산을 둔다. 남은 프레임은 다음 틱에서
 	// 처리되고, 유입이 예산을 계속 초과하면 워커의 큐 상한이 연결을 끊는다.

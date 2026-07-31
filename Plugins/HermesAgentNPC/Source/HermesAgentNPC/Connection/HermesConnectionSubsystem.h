@@ -76,6 +76,11 @@ private:
 	void SendIdentify();
 	void FlushPendingChats();
 
+	/** 연결이 사라졌을 때의 정리. 진행 중이던 발화를 실패시키고 상태를 알린다. */
+	void HandleConnectionLost(double NowSeconds);
+	/** 새 연결에 신원을 밝히고 생존 타이머를 초기화한다. */
+	void HandleConnectionEstablished(double NowSeconds);
+
 	/** error 프레임의 반응을 실행한다. 판정은 HermesErrorPolicy 가 한다. */
 	void ApplyErrorReaction(EHermesErrorReaction Reaction, const FString& Code,
 	                        const FString& Message, const FString& Id);
@@ -93,6 +98,7 @@ private:
 	FString SessionToken;
 	bool bIdentified = false;
 	bool bWasConnected = false;
+	uint32 SeenConnectionGeneration = 0;
 	int32 ChatCounter = 0;
 	int32 PingCounter = 0;
 

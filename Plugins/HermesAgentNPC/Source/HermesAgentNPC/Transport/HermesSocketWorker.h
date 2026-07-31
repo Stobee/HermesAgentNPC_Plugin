@@ -24,6 +24,9 @@ public:
 	void EnqueueOutbound(const FString& Json); // 게임 → 워커
 	bool DequeueInbound(FString& OutJson);     // 워커 → 게임
 	bool IsConnected() const { return bConnected; }
+
+	/** 연결이 성립할 때마다 증가한다. 0 은 "아직 한 번도 붙지 않았다". */
+	uint32 GetConnectionGeneration() const { return (uint32)ConnectionGeneration.GetValue(); }
 	void RequestStop();
 	/** 현재 연결을 끊고 재연결 루프로 돌아가게 한다. 게임 스레드에서 호출. */
 	void RequestReconnect();
@@ -67,6 +70,7 @@ private:
 	// TQueue 는 크기 조회를 제공하지 않으므로 카운터를 따로 둔다.
 	FThreadSafeCounter InboundCount;
 	FThreadSafeCounter OutboundCount;
+	FThreadSafeCounter ConnectionGeneration;
 
 	FThreadSafeBool bStopRequested = false;
 	FThreadSafeBool bReconnectRequested = false;

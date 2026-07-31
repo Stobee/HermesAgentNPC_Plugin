@@ -251,6 +251,9 @@ uint32 FHermesSocketWorker::Run()
 		{
 			if (ConnectSocket())
 			{
+				// bConnected 보다 먼저 올린다. 게임 스레드가 bConnected 를 참으로
+				// 본 시점에는 세대가 이미 새 값이어야 새 연결을 놓치지 않는다.
+				ConnectionGeneration.Increment();
 				bConnected = true;
 				Backoff = Config.InitialReconnectDelay; // 성공 시 리셋
 			}
