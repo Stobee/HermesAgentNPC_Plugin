@@ -39,6 +39,12 @@ void AHermesNPCCharacter::BecomeActiveHermesNpc()
 
 void AHermesNPCCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	// 대화 중에 NPC 가 사라지면 입력이 UI 에 묶인 채로 남는다. 되돌려 준다.
+	if (DialogueWidget && DialogueWidget->IsOpen())
+	{
+		DialogueWidget->Close();
+	}
+
 	// 파괴된 NPC 를 가리키는 핸들러가 남으면 액션이 죽은 액터로 향한다.
 	if (UGameInstance* GI = GetGameInstance())
 	{
@@ -60,10 +66,19 @@ void AHermesNPCCharacter::Interact()
 	{
 		DialogueWidget = CreateWidget<UHermesDialogueWidget>(GI, DialogueWidgetClass);
 	}
-	if (DialogueWidget)
+	if (!DialogueWidget)
 	{
-		DialogueWidget->OpenFor(Conn);
+		return;
 	}
+
+	// 토글로 둔다. 대화 중에는 입력이 UI 로 가므로 이 경로가 닿지 않지만,
+	// 게임이 다른 입력 모드를 쓰거나 블루프린트가 직접 부를 때를 위해 남긴다.
+	if (DialogueWidget->IsOpen())
+	{
+		DialogueWidget->Close();
+		return;
+	}
+	DialogueWidget->OpenFor(Conn);
 }
 
 void AHermesNPCCharacter::Tick(float DeltaSeconds)

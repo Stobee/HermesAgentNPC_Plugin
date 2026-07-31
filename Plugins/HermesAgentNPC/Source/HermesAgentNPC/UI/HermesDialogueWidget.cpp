@@ -4,37 +4,156 @@
 #include "Components/EditableTextBox.h"
 #include "Components/TextBlock.h"
 #include "Components/Button.h"
+#include "GameFramework/PlayerController.h"
+#include "Kismet/GameplayStatics.h"
 
 void UHermesDialogueWidget::OpenFor(UHermesConnectionSubsystem* Conn)
 {
+	// 이미 열려 있는데 다시 열면 델리게이트가 겹쳐 붙어 한 번 눌러도 두 번
+	// 전송된다. NPC 가 위젯 인스턴스를 캐시해 재사용하므로 실제로 일어난다.
+	if (bIsOpen)
+	{
+		return;
+	}
+
 	Connection = Conn;
+	BindEvents();
+	AddToViewport();
+
+	// 이것이 없으면 창은 떠도 마우스가 뷰포트에 잡힌 채라 입력창도 버튼도
+	// 누를 수 없다. 창을 띄우는 것과 입력을 넘기는 것은 한 몸이어야 한다.
+	ApplyInputMode(true);
+
+	bIsOpen = true;
+}
+
+void UHermesDialogueWidget::Close()
+{
+	if (!bIsOpen)
+	{
+		return;
+	}
+
+	UnbindEvents();
+	ApplyInputMode(false);
+	RemoveFromParent();
+	bIsOpen = false;
+}
+
+void UHermesDialogueWidget::BindEvents()
+{
 	if (SendButton)
 	{
 		SendButton->OnClicked.AddDynamic(this, &UHermesDialogueWidget::OnSendClicked);
 	}
+	if (InputBox)
+	{
+		InputBox->OnTextCommitted.AddDynamic(this, &UHermesDialogueWidget::OnInputCommitted);
+	}
 	if (Connection)
 	{
-		ChatHandle  = Connection->OnChatResponse.AddUObject(this, &UHermesDialogueWidget::HandleChatResponse);
+		ChatHandle   = Connection->OnChatResponse.AddUObject(this, &UHermesDialogueWidget::HandleChatResponse);
 		DeltaHandle  = Connection->OnChatDelta.AddUObject(this, &UHermesDialogueWidget::HandleChatDelta);
 		FailedHandle = Connection->OnChatFailed.AddUObject(this, &UHermesDialogueWidget::HandleChatFailed);
 		StateHandle  = Connection->OnConnectionStateChanged.AddUObject(this, &UHermesDialogueWidget::HandleConnState);
 	}
-	AddToViewport();
 }
 
-void UHermesDialogueWidget::NativeDestruct()
+void UHermesDialogueWidget::UnbindEvents()
 {
+	if (SendButton)
+	{
+		SendButton->OnClicked.RemoveDynamic(this, &UHermesDialogueWidget::OnSendClicked);
+	}
+	if (InputBox)
+	{
+		InputBox->OnTextCommitted.RemoveDynamic(this, &UHermesDialogueWidget::OnInputCommitted);
+	}
 	if (Connection)
 	{
 		Connection->OnChatResponse.Remove(ChatHandle);
 		Connection->OnChatDelta.Remove(DeltaHandle);
 		Connection->OnChatFailed.Remove(FailedHandle);
 		Connection->OnConnectionStateChanged.Remove(StateHandle);
+		ChatHandle.Reset();
+		DeltaHandle.Reset();
+		FailedHandle.Reset();
+		StateHandle.Reset();
 	}
+}
+
+void UHermesDialogueWidget::ApplyInputMode(bool bToWidget)
+{
+	// GameInstance 를 Outer 로 만들어진 위젯이라 소유 컨트롤러가 비어 있을 수 있다.
+	APlayerController* PC = GetOwningPlayer();
+	if (!PC)
+	{
+		PC = UGameplayStatics::GetPlayerController(this, 0);
+	}
+	if (!PC)
+	{
+		UE_LOG(LogHermes, Warning,
+			TEXT("no player controller; the dialogue window will not accept input"));
+		return;
+	}
+
+	if (bToWidget)
+	{
+		// UIOnly 를 쓴다. GameAndUI 로 두면 타이핑한 글자가 게임 입력으로도
+		// 흘러 이동·점프가 섞인다. 대신 나가는 길을 반드시 둬야 하므로
+		// 입력창에서 Esc 를 누르면 닫히게 했다(OnInputCommitted).
+		FInputModeUIOnly Mode;
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		if (InputBox)
+		{
+			Mode.SetWidgetToFocus(InputBox->TakeWidget());
+		}
+		PC->SetInputMode(Mode);
+		PC->SetShowMouseCursor(true);
+
+		if (InputBox)
+		{
+			// 바로 타이핑할 수 있게 캐럿을 입력창에 둔다.
+			InputBox->SetKeyboardFocus();
+		}
+	}
+	else
+	{
+		PC->SetInputMode(FInputModeGameOnly());
+		PC->SetShowMouseCursor(false);
+	}
+}
+
+void UHermesDialogueWidget::NativeDestruct()
+{
+	UnbindEvents();
 	Super::NativeDestruct();
 }
 
+void UHermesDialogueWidget::OnInputCommitted(const FText& Text, ETextCommit::Type CommitMethod)
+{
+	if (CommitMethod == ETextCommit::OnEnter)
+	{
+		SendCurrentText();
+		// 전송 후 포커스가 풀리면 다음 발화를 타이핑할 수 없다. 되돌려 준다.
+		if (InputBox)
+		{
+			InputBox->SetKeyboardFocus();
+		}
+	}
+	else if (CommitMethod == ETextCommit::OnCleared)
+	{
+		// Esc. UIOnly 라 게임 입력이 닿지 않으므로 여기가 유일한 퇴로다.
+		Close();
+	}
+}
+
 void UHermesDialogueWidget::OnSendClicked()
+{
+	SendCurrentText();
+}
+
+void UHermesDialogueWidget::SendCurrentText()
 {
 	if (!Connection || !InputBox) return;
 	const FString Text = InputBox->GetText().ToString();
