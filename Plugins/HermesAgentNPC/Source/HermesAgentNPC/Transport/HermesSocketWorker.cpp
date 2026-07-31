@@ -9,6 +9,9 @@
 #include "IPAddress.h"
 #include "HAL/RunnableThread.h"
 #include "HAL/PlatformProcess.h"
+// 연결 수명을 재는 FPlatformTime::Seconds() 때문에 필요하다. 에디터 빌드는
+// unity/PCH 로 전이적으로 얻지만 플러그인 패키징 빌드에는 없다.
+#include "HAL/PlatformTime.h"
 #include "Math/UnrealMathUtility.h"
 
 FHermesSocketWorker::FHermesSocketWorker(const FHermesWorkerConfig& InConfig)

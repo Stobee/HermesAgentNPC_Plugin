@@ -3,6 +3,9 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonWriter.h"
+// TCondensedJsonPrintPolicy 는 여기 있다. 에디터 빌드는 unity/PCH 로 전이적으로
+// 얻지만 플러그인 패키징 빌드에는 없어 컴파일이 깨진다.
+#include "Policies/CondensedJsonPrintPolicy.h"
 
 bool HermesJson::Parse(const FString& Json, TSharedPtr<FJsonObject>& OutObj)
 {

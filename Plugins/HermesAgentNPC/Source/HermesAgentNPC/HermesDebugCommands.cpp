@@ -11,9 +11,13 @@
 // 끝나기 전에 실행되면 아무것도 못 하기 때문이다.
 //   -ExecCmds="Hermes.Interact @2; Hermes.Chat @3 안녕"
 
+// UE_BUILD_SHIPPING 은 Misc/Build.h 가 정의한다. 아래 #if 보다 먼저 들여와야
+// 한다 — 그러지 않으면 매크로가 아직 보이지 않아, 정의되지 않은 매크로를
+// #if 에서 쓰는 것을 오류로 다루는 빌드(플러그인 패키징)에서 컴파일이 깨진다.
+#include "CoreMinimal.h"
+
 #if !UE_BUILD_SHIPPING
 
-#include "CoreMinimal.h"
 #include "HermesLog.h"
 #include "NPC/HermesNPCCharacter.h"
 #include "Connection/HermesConnectionSubsystem.h"

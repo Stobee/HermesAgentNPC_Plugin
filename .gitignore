@@ -9,3 +9,6 @@ Saved/
 *.VC.db
 *.opensdf
 *.sdf
+
+# 플러그인 패키징 산출물 (RunUAT BuildPlugin)
+PackagedPlugin/
