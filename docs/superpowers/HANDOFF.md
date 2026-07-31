@@ -4,7 +4,66 @@
 > **태스크를 완료할 때마다 갱신한다.**
 
 - 최종 갱신: 2026-07-31
-- 브랜치: `master`
+- 브랜치: **`feat/reconnect-eviction-guard` (작업 중단 상태 — 아래 절을 먼저 읽을 것)**
+
+## ⏸️ 진행 중인 작업 — Task 28 (재접속 노출과 eviction war 방지)
+
+**`master` 가 아니라 `feat/reconnect-eviction-guard` 에서 이어받는다.**
+
+계획을 Subagent-Driven Development 로 실행하다 사용자 지시로 중단했다.
+6개 태스크 중 4개가 커밋되어 있고, **Task 4 는 재리뷰가 남았다.**
+
+| 문서 | 경로 |
+|---|---|
+| 설계 | `docs/superpowers/specs/2026-07-31-hermes-reconnect-eviction-guard-design.md` |
+| 계획 | `docs/superpowers/plans/2026-07-31-hermes-reconnect-eviction-guard.md` |
+| SDD 원장 | `.superpowers/sdd/2026-07-31-hermes-reconnect-eviction-guard/progress.md` (git-ignored, 이 PC 에만 있음) |
+
+### 커밋된 것
+
+```
+f29921f fix: Deinitialize 시 SuspendState 도 초기화해 정지 고정 방지   ← Task 4 수정
+8ce0f38 feat: Reconnect 를 블루프린트에 노출하고 쿨다운을 플러그인이 강제  ← Task 4
+599cd5b feat: 재개 쿨다운 설정 추가                                  ← Task 3
+f5e510b feat: 재연결 정지 상태 전이 분리                              ← Task 2
+afc3758 feat: 의도적 재개의 대기 시간 계산 분리                        ← Task 1
+daed075 docs: 재접속 노출과 eviction war 방지 구현 계획
+```
+
+Task 1~3 은 스펙 준수·품질 리뷰를 모두 통과했다.
+**자동화 테스트 30/30 통과 (`EXIT CODE: 0`) 를 직접 확인했다.** 워킹 트리는 깨끗하다.
+
+### 정확히 여기서 재개한다
+
+1. **Task 4 의 범위 좁힌 재리뷰.** 수정 커밋 `f29921f` 이 리뷰 지적을 실제로
+   해결했는지 확인하지 않았다. 진단 범위는 `8ce0f38..f29921f`.
+   깨끗하면 원장에 `Task 4: complete` 를 적는다.
+2. **Task 5** — `Hermes.Reconnect` 콘솔 명령과 스텁 실행 검증
+3. **Task 6** — 문서 (README 재접속 절, §4.3, 인계 기록, 기준선 30종)
+4. 전체 브랜치 최종 리뷰 → `master` 병합 → push
+
+### 다음 사람이 알아야 할 맥락
+
+- **계획에 구멍이 하나 있었다.** 서브시스템에 이미
+  `IsReconnectSuspended()`(워커 플래그를 감싸는 인라인)가 있는데 계획이 그것을
+  모르고 "추가하라"고 썼다. 구현자가 `SuspendState` 기반으로 교체했고, 그 과정에서
+  종료 경로의 의미가 바뀌어 `Deinitialize()` 후 영구 true 로 남는 회귀가 생겼다.
+  `f29921f` 이 그것을 고쳤다(`FHermesSuspendState::Reset()` 추가). **계획서의 다른
+  부분도 기존 코드를 정확히 반영하지 못했을 수 있으니 그대로 믿지 말 것.**
+- "정지 중" 을 나타내는 플래그가 둘이다 — `FHermesSocketWorker::bReconnectSuspended`
+  와 `FHermesSuspendState::bSuspended`. 현재는 항상 같이 움직이지만, 새 경로를
+  추가할 때 어긋나지 않는지 반드시 확인할 것.
+
+### 원장에 쌓인 Minor 4건 (최종 리뷰에서 병합 전 처리 여부 판단)
+
+- Task 1 — `HermesResumePolicy.cpp` 30단계 상한 주석의 근거가 부정확.
+  `inf` 도 `FMath::Min` 으로 올바르게 처리되므로 방어적일 뿐이다
+- Task 2 — `CooldownRemaining` 은 시계가 역행하면(`NowSeconds < SuspendedAt`)
+  `Required` 보다 큰 값을 돌려줄 수 있다. 하한만 클램프한다
+- Task 2 — `NoteConnectionOpened` 없이 `NoteConnectionClosed` 를 부르는 경로에
+  테스트가 없다 (무해함은 분석으로 확인)
+- Task 4 — `FHermesSocketWorker::IsReconnectSuspended()` 가 호출자 없는 죽은 코드가
+  되었다 (`Transport/HermesSocketWorker.h:43`)
 
 ## 지금 상태
 
