@@ -233,6 +233,11 @@ void UHermesConnectionSubsystem::HandleConnectionLost(double NowSeconds)
 {
 	bIdentified = false;
 
+	// 이 연결이 얼마나 살았는지가 사다리를 되돌릴지 가른다.
+	SuspendState.NoteConnectionClosed(
+		NowSeconds - ConnectionOpenedAt,
+		GetDefault<UHermesSettings>()->HealthyConnectionSeconds);
+
 	// 진행 중이던 발화를 모두 실패 처리한다. 재연결 후 서버가 이전 발화를
 	// 이어서 응답하더라도 그 id 는 추적 대상이 아니므로 위젯의 상관 규칙이 무시한다.
 	TArray<FString> Abandoned;
@@ -251,6 +256,8 @@ void UHermesConnectionSubsystem::HandleConnectionEstablished(double NowSeconds)
 	bIdentified  = false;
 	LastRecvTime = NowSeconds;   // 초기화하지 않으면 연결 직후 즉시 사망 판정이 난다
 	LastSendTime = NowSeconds;
+	ConnectionOpenedAt = NowSeconds;
+	SuspendState.NoteConnectionOpened();
 	SendIdentify();
 }
 
@@ -478,6 +485,10 @@ void UHermesConnectionSubsystem::ApplyErrorReaction(EHermesErrorReaction Reactio
 		{
 			Worker->SuspendReconnect();
 		}
+		SuspendState.NoteSuspended(FPlatformTime::Seconds());
+		// 게임이 재접속 UI 를 띄울 시점이다. 이것이 없으면 게임은 정지 사실을
+		// 알 방법이 없어 버튼을 언제 보여야 할지 모른다.
+		OnReconnectSuspended.Broadcast(Message);
 		break;
 
 	case EHermesErrorReaction::FailPendingTurn:
@@ -498,12 +509,48 @@ void UHermesConnectionSubsystem::ApplyErrorReaction(EHermesErrorReaction Reactio
 	}
 }
 
-void UHermesConnectionSubsystem::Reconnect()
+bool UHermesConnectionSubsystem::Reconnect()
 {
 	if (!Worker)
 	{
-		return;
+		return false;
 	}
+
+	const UHermesSettings* Settings = GetDefault<UHermesSettings>();
+	const double Now = FPlatformTime::Seconds();
+
+	if (!SuspendState.IsSuspended())
+	{
+		UE_LOG(LogHermes, Verbose,
+			TEXT("Reconnect() ignored: the reconnect loop is not suspended"));
+		return false;
+	}
+
+	if (!SuspendState.TryResume(Now, Settings->ReconnectCooldownSeconds,
+	                            Settings->MaxReconnectCooldownSeconds))
+	{
+		// 거부를 조용히 하면 게임은 버튼이 먹통이 된 것으로 보인다.
+		UE_LOG(LogHermes, Warning,
+			TEXT("Reconnect() refused: %.1fs of cooldown remaining"),
+			GetReconnectCooldownRemaining());
+		return false;
+	}
+
 	UE_LOG(LogHermes, Log, TEXT("deliberate reconnect requested by game code"));
 	Worker->ResumeReconnect();
+	return true;
+}
+
+bool UHermesConnectionSubsystem::IsReconnectSuspended() const
+{
+	return SuspendState.IsSuspended();
+}
+
+float UHermesConnectionSubsystem::GetReconnectCooldownRemaining() const
+{
+	const UHermesSettings* Settings = GetDefault<UHermesSettings>();
+	return SuspendState.CooldownRemaining(
+		FPlatformTime::Seconds(),
+		Settings->ReconnectCooldownSeconds,
+		Settings->MaxReconnectCooldownSeconds);
 }

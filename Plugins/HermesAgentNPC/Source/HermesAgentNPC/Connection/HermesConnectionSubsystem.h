@@ -6,6 +6,7 @@
 // UHT가 생성하는 생성자가 멤버 소멸자를 인스턴스화하므로 전방 선언으로는 부족하다.
 #include "Transport/HermesSocketWorker.h"
 #include "Connection/HermesPendingChats.h"
+#include "Connection/HermesSuspendState.h"
 #include "HermesConnectionSubsystem.generated.h"
 
 class UHermesActionDispatcher;
@@ -16,6 +17,12 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FOnChatResponse, const FString&, const FStr
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnConnectionStateChanged, bool);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnChatDelta, const FString& /*Text*/, const FString& /*Id*/);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnChatFailed, const FString& /*Id*/, const FString& /*Reason*/);
+
+/**
+ * 재연결 루프가 정지되었다. 게임이 재접속 UI 를 띄울 시점이다.
+ * 기존 델리게이트들과 달리 dynamic 이다 — 블루프린트가 구독해야 하기 때문이다.
+ */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnReconnectSuspended, const FString&, Reason);
 
 UCLASS()
 class HERMESAGENTNPC_API UHermesConnectionSubsystem : public UGameInstanceSubsystem
@@ -32,15 +39,26 @@ public:
 	                     const TSharedPtr<class FJsonObject>& Result, const FString& Error);
 
 	/**
-	 * 종료성 에러로 멈춘 재연결 루프를 다시 돌린다. 게임이 **의도적으로** 다시
-	 * 붙을 때만 호출한다(예: 플레이어가 대화를 다시 시작). 프로토콜 §3.4 가
-	 * 세션 탈취 후의 재접속을 의도적 행위로 요구한다 — 자동 재시도로 되돌리면
-	 * 두 게임 인스턴스가 서로를 영원히 걷어낸다.
+	 * 종료성 에러로 멈춘 재연결 루프를 다시 돌린다.
+	 *
+	 * 재개했으면 true. 정지 상태가 아니거나 쿨다운 중이면 false 다.
+	 * 쿨다운은 플러그인이 강제한다 — 게임이 이 함수를 Tick 에 걸어도
+	 * eviction war 로 번지지 않는다. 남은 대기는
+	 * GetReconnectCooldownRemaining() 으로 알 수 있다.
 	 */
-	void Reconnect();
+	UFUNCTION(BlueprintCallable, Category="Hermes")
+	bool Reconnect();
 
-	/** 종료성 에러로 재연결이 멈춰 있는지. UI 가 상태를 보여줄 때 쓴다. */
-	bool IsReconnectSuspended() const { return Worker && Worker->IsReconnectSuspended(); }
+	/** 종료성 에러로 정지되어 Reconnect() 를 기다리는 상태인가. */
+	UFUNCTION(BlueprintPure, Category="Hermes")
+	bool IsReconnectSuspended() const;
+
+	/**
+	 * 지금 Reconnect() 가 거부될 때 남은 대기(초). 0 이면 즉시 가능.
+	 * 정지 상태가 아니면 0 이다 — 기다릴 것이 없다.
+	 */
+	UFUNCTION(BlueprintPure, Category="Hermes")
+	float GetReconnectCooldownRemaining() const;
 
 	/**
 	 * 이 연결이 대상으로 삼을 NPC 를 지정한다. 플러그인은 NPC 한 명만 다루므로
@@ -62,6 +80,10 @@ public:
 
 	/** 발화가 응답 없이 만료되었거나 연결 단절로 폐기되었음을 알린다. */
 	FOnChatFailed OnChatFailed;
+
+	/** 재연결 루프가 정지되는 순간. Reason 은 사용자에게 보여줄 수 있는 사유. */
+	UPROPERTY(BlueprintAssignable, Category="Hermes")
+	FOnReconnectSuspended OnReconnectSuspended;
 
 	const FString& GetLastSentChatId() const { return LastSentChatId; }
 
@@ -99,6 +121,9 @@ private:
 	bool bIdentified = false;
 	bool bWasConnected = false;
 	uint32 SeenConnectionGeneration = 0;
+	FHermesSuspendState SuspendState;
+	/** 현재 연결이 성립한 시각. 끝날 때 얼마나 살았는지 재는 데 쓴다. */
+	double ConnectionOpenedAt = 0.0;
 	int32 ChatCounter = 0;
 	int32 PingCounter = 0;
 
