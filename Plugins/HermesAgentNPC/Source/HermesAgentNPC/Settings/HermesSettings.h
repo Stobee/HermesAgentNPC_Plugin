@@ -65,6 +65,20 @@ public:
 	UPROPERTY(EditAnywhere, config, Category="Connection|Tuning", meta=(ClampMin="0.0", ClampMax="60.0"))
 	float HealthyConnectionSeconds = 5.f;
 
+	/**
+	 * 두 번째 연속 정지부터의 재개 대기(초). 첫 정지는 언제나 즉시 재개된다.
+	 *
+	 * 같은 신원으로 두 인스턴스가 뜨면 서로를 걷어내는 싸움이 된다. 되받아칠수록
+	 * 이 값이 배로 늘어 싸움이 수렴한다. 값을 키우면 더 빨리 수렴하지만 정당한
+	 * 재접속도 그만큼 기다린다.
+	 */
+	UPROPERTY(EditAnywhere, config, Category="Connection|Tuning", meta=(ClampMin="0.0", ClampMax="120.0"))
+	float ReconnectCooldownSeconds = 5.f;
+
+	/** 재개 대기의 상한(초). */
+	UPROPERTY(EditAnywhere, config, Category="Connection|Tuning", meta=(ClampMin="1.0", ClampMax="3600.0"))
+	float MaxReconnectCooldownSeconds = 300.f;
+
 	/** 액션 요청 응답 대기 한계(초). 초과 시 timeout 결과를 회신한다. */
 	UPROPERTY(EditAnywhere, config, Category="Connection|Tuning", meta=(ClampMin="1.0", ClampMax="120.0"))
 	float ActionTimeoutSeconds = 15.f;
