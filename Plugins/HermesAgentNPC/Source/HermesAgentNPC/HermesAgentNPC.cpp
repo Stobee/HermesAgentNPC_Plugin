@@ -1,4 +1,4 @@
 #include "HermesAgentNPC.h"
 #include "Modules/ModuleManager.h"
 
-IMPLEMENT_PRIMARY_GAME_MODULE(FDefaultGameModuleImpl, HermesAgentNPC, "HermesAgentNPC");
+IMPLEMENT_MODULE(FDefaultModuleImpl, HermesAgentNPC);
