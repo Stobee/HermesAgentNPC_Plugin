@@ -490,6 +490,39 @@ Task 11~13e 로 들어간 것들이다. 각 항목의 시나리오와 기대 결
 
 회귀 감시선: `Hermes.Chat.Correlation`, 그리고 스텁 시나리오 `unprompted_speech`.
 
+### 7.7 고친 것 — TLS 가 에디터에서 아예 동작하지 않았다
+
+Task 16 에서 구현했다고 기록된 TLS 전송은 **에디터·PIE 에서 한 번도 붙을 수 없는
+상태였다.** 자동화 테스트는 `HermesTlsPolicy`(순수 판정 로직)만 덮었고 전송 계층은
+실제로 돌려본 적이 없었다. 실서버가 TLS 로 올라온 뒤에야 드러났다.
+
+세 겹으로 겹쳐 있었다.
+
+**(1) `InitializeSsl()` 이 거짓을 돌려주는 것을 실패로 다뤘다.**
+엔진의 `FSslManager::InitializeSsl()` 은 본체가 통째로
+`#if IS_MONOLITHIC || UE_MERGED_MODULES` 안에 있어 **모듈러 빌드에서는 항상 false** 다.
+OpenSSL 이 여러 라이브러리에 정적 링크되어 SSL 모듈이 전역 초기화를 맡지 않기
+때문이며, "초기화하지 않았다"는 뜻이지 "쓸 수 없다"는 뜻이 아니다.
+증상은 `failed to initialize SSL` 이었다.
+
+**(2) `CreateSslContext()` 도 같은 `#if` 안에 있다.** 모듈러 빌드에서는 무조건
+`nullptr` 을 돌려준다. 즉 엔진의 `ISslManager` 는 모놀리식 전용 API 다.
+그래서 `SSL_CTX` 를 OpenSSL 로 직접 만든다(`SSL_CTX_new` + `set_min_proto_version`).
+해제도 `SSL_CTX_free` 로 직접 한다 — 엔진의 `DestroySslContext` 는 모듈러에서
+아무 일도 하지 않아 그대로 두면 누수다.
+
+**(3) 핀 검증이 항상 불일치로 떨어졌다.** 엔진의 `X509_STORE_CTX` 오버로드는
+`X509_STORE_CTX_get_chain()` — `X509_verify_cert()` 가 채우는 **검증된 체인** — 을
+읽는다. 핀 모드는 체인 검증을 돌리지 않으므로(자체 서명 허용이 핀의 목적이다)
+그 체인은 언제나 비어 있다. `X509_STORE_CTX_init` 이 채우는 것은 untrusted 체인이라
+소용이 없다. SPKI 다이제스트를 직접 만들어 넘기는 오버로드로 바꿨다.
+
+세 가지를 모두 고친 뒤 실서버 TLS 1.3 + 자체 서명 + SPKI 핀으로 접속·`identify`·
+대화까지 확인했다.
+
+**부수 수정:** `-HermesUseTLS=0/1` 오버라이드를 추가했다(§8.3). 없으면 스텁(평문)과
+실서버(TLS)를 오갈 때마다 ini 를 고쳐야 하고, 고치는 순간 반대쪽이 전부 막힌다.
+
 ### 7.5 넣은 것 — 프레임 트레이스
 
 지금까지의 증거는 전부 **스텁이 프레임을 찍어 준 덕분**이었다. 실제 서버에는 그것이
@@ -562,10 +595,23 @@ LogHermes: Verbose: << {"type": "identified", "ok": true, "player_id": "p-01c1..
 | `failed to parse inbound frame` | 프레이밍 불일치. 4바이트 big-endian 길이 프리픽스인지 |
 | `identify` 는 갔는데 `identified` 가 없다 | 서버가 `protocol_version: 2` 를 받는지, 응답에 `player_id`/`session_token` 이 들어 있는지 |
 
-### 8.3 TLS 켜기 — ini 를 고쳐야 한다
+### 8.3 TLS 켜기
 
-**커맨드라인 오버라이드가 없다.** `-HermesHost` / `-HermesPort` 만 있고 TLS 는 없으므로
-`Config/DefaultGame.ini` 를 직접 고친다.
+기본값은 `Config/DefaultGame.ini` 지만 **커맨드라인으로 덮을 수 있다.**
+
+```
+-HermesUseTLS=1     # 켠다
+-HermesUseTLS=0     # 끈다 (스텁 서버는 평문이므로 이쪽)
+```
+
+하네스는 `-Tls on|off` 로 넘긴다. 지정하지 않으면 **스텁 모드는 자동으로 끄고**,
+`-Endpoint` 모드는 ini 를 따른다. 스텁(평문)과 실서버(TLS)를 오갈 때마다 ini 를
+고치지 않아도 되게 하기 위함이다 — 고치는 순간 반대쪽 검증 14종이 전부 막힌다.
+
+Host/Port 오버라이드와 마찬가지로 **Shipping 빌드에서는 무시된다.** Shipping 은
+`HermesTls::ResolveUseTls` 가 TLS 를 강제하므로 이중으로 막혀 있다.
+
+배포 기본값을 바꾸려면 ini 를 고친다.
 
 ```ini
 [/Script/HermesAgentNPC.HermesSettings]

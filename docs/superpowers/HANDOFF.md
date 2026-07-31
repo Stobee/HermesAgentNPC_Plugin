@@ -137,18 +137,19 @@
 
 **C++ 구현은 끝났다**(소스 전체에 `TODO`/`FIXME` 0건). 실제 서버 구축 시 수행할 것들:
 
-### (1) `bUseTLS` 를 `True` 로 전환 — 실제 SSL 서버 구축 후
+### (1) TLS 실서버 검증 — ✅ 완료 (2026-07-31)
 
-`Config/DefaultGame.ini` 가 개발 편의를 위해 아래로 설정되어 있다.
+`Config/DefaultGame.ini` 는 이제 `bUseTLS=True` + `TlsPinnedPublicKeyHashes` 다.
+TLS 1.3 + 자체 서명 인증서 + SPKI 핀으로 접속·`identify`·대화까지 확인했다.
 
-```ini
-Host=192.168.0.111
-Port=8770
-bUseTLS=False
-```
+**그 과정에서 TLS 전송이 에디터·PIE 에서 아예 동작하지 않던 것을 발견해 고쳤다**
+(Task 25, §7.7). 엔진의 `ISslManager` 가 모놀리식 전용이라 모듈러 빌드에서는
+`CreateSslContext` 가 항상 `nullptr` 을 돌려준다. 자동화 테스트는 순수 판정 로직만
+덮고 있어 드러나지 않았다.
 
-- Shipping 빌드는 `HermesConnectionSubsystem.cpp` 가 TLS 를 강제하므로 배포 사고는 없다.
-- 실제 백엔드 SSL 서버(또는 SPKI 핀)가 구축되는 시점에 `DefaultGame.ini`의 `bUseTLS=True` 전환 및 `TlsPinnedPublicKeyHashes`를 설정한다.
+스텁(평문)과 실서버(TLS)는 `-HermesUseTLS=0/1` 로 오간다. ini 를 고칠 필요가 없다.
+
+**서버 인증서를 바꾸면 핀도 바꿔야 한다.** 뽑는 법은 §8.4.
 
 ### (2) `Reconnect()` 블루프린트 노출 — 게임 재접속 UI 설계 시
 

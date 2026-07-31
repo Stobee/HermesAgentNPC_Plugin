@@ -43,6 +43,12 @@
       재현할 수 없던 공백을 메웠다
 - [x] **문서** 작은 모델 주의사항을 플러그인 측 문서에 추가
       (`README.md`, `HermesAgentNPC_Documentation.html` §08)
+- [x] **Task 25** TLS 전송이 에디터에서 아예 동작하지 않던 문제 수정 — 엔진
+      `ISslManager` 가 모놀리식 전용이라 SSL_CTX 를 OpenSSL 로 직접 만들고,
+      핀 검증을 다이제스트 오버로드로 바꿨다. §7.7
+- [x] **Task 26** `-HermesUseTLS=0/1` 오버라이드 추가 — 스텁(평문)과 실서버(TLS)를
+      ini 수정 없이 오갈 수 있다 (`Hermes.Settings.CommandLineOverride` 확장). §8.3
+- [x] **실서버 TLS 검증** TLS 1.3 + 자체 서명 + SPKI 핀으로 접속·`identify`·대화 확인
 
 ## ✅ 스텁 14개 시나리오 전부 실행 검증 (2026-07-31)
 
@@ -60,8 +66,6 @@
 
 ## ⬜ 아직 남은 것
 
-- [ ] **`bUseTLS=True` 전환** — `Config/DefaultGame.ini` 가 아직 `False` 다.
-      계획서 694행이 지정한 임시값이며, 서버 인증서 준비가 선행되어야 한다
 - [ ] **`Reconnect()` 블루프린트 노출** — 게임에 재접속 UI 가 생기는 시점에
       `UFUNCTION(BlueprintCallable)` 부착 (의도적 보류)
 - [ ] **위젯이 눈에 어떻게 보이는지** — 동작은 전부 자동 검증되지만 레이아웃·글자
