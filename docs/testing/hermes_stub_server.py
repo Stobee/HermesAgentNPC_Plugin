@@ -253,6 +253,12 @@ def serve(conn: socket.socket, addr, scenario: str) -> None:
                         })
 
                 elif mtype == "ping":
+                    if scenario == "silent_after_identify":
+                        # 여기서 pong 을 돌려주면 그것이 수신 신호가 되어
+                        # LastRecvTime 이 갱신되고 사망 판정이 영영 나지 않는다.
+                        # "침묵"은 아무것도 보내지 않는다는 뜻이다.
+                        print("  (silent_after_identify: pong 을 보내지 않는다)", flush=True)
+                        continue
                     send_frame(conn, {"type": "pong", "id": msg.get("id", "")})
 
                 elif mtype == "pong":
@@ -273,11 +279,6 @@ def serve(conn: socket.socket, addr, scenario: str) -> None:
                         "type": "error", "code": "unknown_type",
                         "message": f"unrecognized type {mtype!r}",
                     })
-
-            if identified and scenario == "silent_after_identify":
-                # 아무것도 보내지 않는다. PeerTimeoutSeconds 후 클라이언트가
-                # 연결을 죽은 것으로 판정하고 재연결해야 한다.
-                pass
 
     except ValueError as exc:
         print(f"[!] {exc}", flush=True)
