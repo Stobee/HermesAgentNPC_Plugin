@@ -473,6 +473,30 @@ Task 11~13e 로 들어간 것들이다. 각 항목의 시나리오와 기대 결
 것을 실제로 하지 않았던 셈이다. 이 시나리오에서는 `pong` 을 보내지 않도록 고쳤고,
 그 뒤 60초 사망 판정과 재연결이 정상 관측된다.
 
+### 7.5 넣은 것 — 프레임 트레이스
+
+지금까지의 증거는 전부 **스텁이 프레임을 찍어 준 덕분**이었다. 실제 서버에는 그것이
+없으므로 클라이언트가 무엇을 주고받았는지 볼 방법이 필요하다.
+
+`SendJson()` 과 인바운드 소비 지점에서 프레임을 `Verbose` 로 남긴다.
+
+```
+LogHermes: Verbose: >> {"type":"identify","protocol_version":2}
+LogHermes: Verbose: << {"type": "identified", "ok": true, "player_id": "p-01c1...", "session_token": "***", ...}
+```
+
+- **`session_token` 은 `***` 로 가린다.** 세션을 대신하는 자격 증명이라 로그를
+  공유하는 순간 남의 세션에 붙을 수 있는 값이 된다. 정형은
+  `HermesTrace::FormatFrame` 이 하고 `Hermes.Trace.FormatFrame` 이 지킨다.
+- `player_id` 는 가리지 않는다. 비밀이 아니고 신원 발급·재사용 흐름을 쫓을 때 필요하다.
+- 512자를 넘는 프레임은 자르고 원래 길이를 덧붙인다. 1 MiB 프레임 하나가 로그를
+  덮으면 앞뒤 맥락을 잃는다.
+- 파싱 실패도 `Warning` 으로 남긴다. 실서버 연동에서 가장 먼저 의심할 지점이고
+  트레이스와 짝을 이뤄야 원인이 보인다.
+
+워커도 연결 성립을 남긴다(`transport connected to ...`). 이것과 송신 `identify` 개수를
+비교하는 것이 §7.1 회귀의 감시선이며, 하네스 요약이 자동으로 검사한다.
+
 ### 7.4 안 고친 것 — 에러로 인한 재연결에는 백오프가 없다
 
 위 수정으로 드러난 별개의 사실이다. `FHermesSocketWorker::Run()` 의 백오프는
@@ -486,3 +510,115 @@ Task 11~13e 로 들어간 것들이다. 각 항목의 시나리오와 기대 결
 않는다(실서버라면 자격 증명을 새로 발급해 준다). 다만 서버가 그 상태에 빠지면
 클라이언트가 서버를 두드리게 되므로, **에러로 인한 재연결도 백오프 사다리를
 공유할지**는 결정이 필요하다. 실서버 연동 시 판단할 것.
+
+---
+
+## 8. 실제 서버 연동 검증
+
+스텁은 프로토콜을 흉내낼 뿐이다. 실서버에서 처음 드러나는 것들이 있다 —
+직렬화 차이, 타이밍, TLS, 그리고 스텁이 구현하지 않은 세션 탈취.
+
+### 8.1 순서 — 평문 먼저, TLS 나중
+
+**한 번에 하지 않는다.** 실패했을 때 프로토콜 문제인지 TLS 문제인지 구분할 수 없다.
+
+1. 서버를 평문으로 띄우고(`HERMES_USE_TLS=false`) 클라이언트도 `bUseTLS=False` 로 둔 채
+   프로토콜을 먼저 통과시킨다.
+2. 통과한 뒤 TLS 만 켜서 인증서·핀 경로를 따로 검증한다.
+
+### 8.2 붙이기
+
+```powershell
+.\docs\testing\run-headless-verification.ps1 -Endpoint 192.168.0.111:8770 -Seconds 60 -ResetSave `
+    -Exec "Hermes.Interact @5, Hermes.Chat @8 안녕하세요"
+```
+
+`-Endpoint` 를 주면 스텁을 띄우지 않고 그 주소로 붙는다. `-Scenario` 는 무시된다.
+요약의 연결 수·identify 수·에러 수는 **클라이언트 로그**에서 세므로 스텁 없이도 나온다.
+
+붙지 않을 때 확인 순서:
+
+| 증상 | 볼 곳 |
+|---|---|
+| `transport connected` 자체가 없다 | 호스트·포트, 방화벽(`New-NetFirewallRule ... -LocalPort 8770`), 서버가 떠 있는지 |
+| 붙자마자 끊긴다 | 서버가 TLS 를 요구하는데 클라이언트가 평문으로 붙었을 가능성. 서버 로그를 볼 것 |
+| `failed to parse inbound frame` | 프레이밍 불일치. 4바이트 big-endian 길이 프리픽스인지 |
+| `identify` 는 갔는데 `identified` 가 없다 | 서버가 `protocol_version: 2` 를 받는지, 응답에 `player_id`/`session_token` 이 들어 있는지 |
+
+### 8.3 TLS 켜기 — ini 를 고쳐야 한다
+
+**커맨드라인 오버라이드가 없다.** `-HermesHost` / `-HermesPort` 만 있고 TLS 는 없으므로
+`Config/DefaultGame.ini` 를 직접 고친다.
+
+```ini
+[/Script/HermesAgentNPC.HermesSettings]
+Host=192.168.0.111
+Port=8770
+bUseTLS=True
+```
+
+> Shipping 빌드는 이 값이 `False` 여도 TLS 를 강제한다. 즉 배포본이 설정 실수로
+> 평문 통신하는 일은 없다. 여기서 끄는 것은 개발 편의일 뿐이다.
+
+### 8.4 검증 모드 세 가지
+
+`HermesTls::ResolveVerifyMode` 가 설정을 보고 고른다. **핀이 하나라도 있으면 핀이
+우선한다**(사설 CA 가 함께 설정돼 있어도).
+
+| 설정 | 모드 | 언제 |
+|---|---|---|
+| `TlsPinnedPublicKeyHashes` 에 값 | `PinnedKey` | 자체 서명 인증서. LAN 서버에 가장 흔하다 |
+| `TlsPrivateCaPath` 만 | `PrivateCa` | 사내 CA 가 발급한 인증서 |
+| 둘 다 비움 | `SystemCa` | 공인 CA 인증서 |
+
+공백뿐인 항목은 핀으로 치지 않는다 — ini 편집 실수로 검증이 무력해지지 않게 하기 위함이다.
+
+**자체 서명 서버라면 핀 해시를 뽑아 넣는다.** 값은 서버 공개키(SPKI)의 SHA-256 을
+base64 로 인코딩한 것이다.
+
+```bash
+# 떠 있는 서버에서 바로 뽑기
+openssl s_client -connect 192.168.0.111:8770 -servername 192.168.0.111 </dev/null 2>/dev/null \
+  | openssl x509 -pubkey -noout \
+  | openssl pkey -pubin -outform der \
+  | openssl dgst -sha256 -binary \
+  | openssl enc -base64
+
+# 인증서 파일에서 뽑기
+openssl x509 -in server.crt -pubkey -noout \
+  | openssl pkey -pubin -outform der \
+  | openssl dgst -sha256 -binary \
+  | openssl enc -base64
+```
+
+```ini
++TlsPinnedPublicKeyHashes=BASE64해시값=
+```
+
+> 핀은 **인증서가 아니라 공개키**를 고정한다. 같은 키로 인증서를 재발급하면 핀은
+> 그대로 유효하다. 키를 바꾸면 핀도 바꿔야 하며, 그 전까지 클라이언트는 붙지 못한다.
+
+**IP 로 붙는다면 `TlsServerName` 을 확인할 것.** 비워 두면 `Host` 를 그대로 SNI 와
+호스트명 검증에 쓴다. 인증서가 IP 가 아닌 도메인으로 발급됐다면 그 도메인을 여기 넣는다.
+핀 모드에서는 호스트명 검증을 하지 않지만 SNI 에는 여전히 쓰인다.
+
+### 8.5 TLS 실패 로그 읽는 법
+
+| 로그 | 뜻 |
+|---|---|
+| `TLS public key pin mismatch for '...'` | 핀이 서버 키와 다르다. 8.4 로 다시 뽑을 것 |
+| `pins were configured but not registered for '...'` | 핀 등록에 쓴 이름과 검증 이름이 어긋났다. `TlsServerName` 확인 |
+| `TLS certificate verification failed ... (code N)` | 체인·호스트명 검증 실패. 자체 서명이면 핀을 쓸 것 |
+| `failed to load private CA: ...` | `TlsPrivateCaPath` 경로가 틀렸다. 프로젝트 디렉터리 기준 상대 경로다 |
+| `TLS handshake timed out after Ns` | 서버가 TLS 를 말하지 않거나(평문 포트) 도달 불가 |
+
+**TLS 실패는 평문으로 되돌아가지 않는다.** 연결을 닫고 백오프 재연결에 맡긴다.
+설계상 의도된 것이며, 그래서 설정이 틀리면 조용히 평문으로 통신하는 대신 아예 못 붙는다.
+
+### 8.6 스텁으로는 못 하는 것 — 세션 탈취
+
+스텁은 같은 신원의 새 연결이 와도 기존 것을 끊지 않는다. 즉 `session_taken_over` 를
+**받았을 때** 클라이언트가 멈추는지는 검증됐지만(§4.1), 서버가 실제로 탈취를 수행할 때
+두 클라이언트가 서로를 반복해 걷어내지 않는지는 실서버에서만 볼 수 있다.
+
+실서버가 준비되면 §4.1 (b) 절차로 확인한다.

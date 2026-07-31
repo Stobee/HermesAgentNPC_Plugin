@@ -1,6 +1,6 @@
-# Hermes UE5 클라이언트 — 작업 진행 기록
+﻿# Hermes UE5 클라이언트 — 작업 진행 기록
 
-> 마지막 업데이트: 2026-07-31 (스텁 13개 시나리오 전부 실행 검증 — 버그 3건 발견·수정)
+> 마지막 업데이트: 2026-07-31 (스텁 13/13 실행 검증 + 버그 3건 수정 + 실서버 연동 준비)
 > 브랜치: `master`
 > 계획 문서: `docs/superpowers/plans/2026-07-28-hermes-settings-protocol-v2.md`
 
@@ -35,6 +35,8 @@
 - [x] **Task 22** 검증용 콘솔 명령(`Hermes.Interact`/`Chat`/`Status`)과 헤드리스
       하네스 정비. Shipping 빌드에는 컴파일되지 않는다
 - [x] **스텁 수정** `silent_after_identify` 가 pong 을 돌려줘 침묵하지 않던 문제. §7.3
+- [x] **Task 23** 실서버 연동 준비 — 프레임 트레이스(`Hermes.Trace.FormatFrame` PASS,
+      `session_token` 마스킹), 하네스 `-Endpoint` 모드, TLS 절차 문서(§8)
 
 ## ✅ 스텁 13개 시나리오 전부 실행 검증 (2026-07-31)
 
@@ -61,7 +63,7 @@
 - [ ] **에러로 인한 재연결의 백오프 부재** — 판단 필요. 배경은
       `manual-verification-setup.md` §7.4
 
-## 자동화 테스트 결과 (총 25종 전원 PASS)
+## 자동화 테스트 결과 (총 26종 전원 PASS)
 
 - `Hermes.ActionParams.Coordinate` : PASS
 - `Hermes.ActionParams.ItemId` : PASS
@@ -87,5 +89,6 @@
 - `Hermes.TlsPolicy.ServerName` : PASS
 - `Hermes.TlsPolicy.UseTls` : PASS
 - `Hermes.TlsPolicy.VerifyMode` : PASS
+- `Hermes.Trace.FormatFrame` : PASS
 - `Hermes.Util.PushBounded` : PASS
-- `EXIT CODE: 0` (25/25 PASS, 2026-07-31 재확인)
+- `EXIT CODE: 0` (26/26 PASS, 2026-07-31 재확인)

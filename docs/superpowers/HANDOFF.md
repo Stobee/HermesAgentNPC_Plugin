@@ -1,4 +1,4 @@
-# 작업 인계 문서
+﻿# 작업 인계 문서
 
 > 이 파일은 작업이 중단되었을 때 다음 세션이 이어받기 위한 기록이다.
 > **태스크를 완료할 때마다 갱신한다.**
@@ -8,7 +8,7 @@
 
 ## 지금 상태
 
-**Phase 1 ~ Phase 5 (Task 1 ~ Task 19) 전체 완료. + Task 20~22 (검증 중 발견한 버그 수정) 완료.**
+**Phase 1 ~ Phase 5 (Task 1 ~ Task 19) 전체 완료. + Task 20~23 (버그 수정 및 실서버 준비) 완료.**
 
 | Phase | 범위 | 상태 |
 |---|---|---|
@@ -17,12 +17,13 @@
 | 2 — 입력 강건성 | Task 4~8 | ✅ **완료** |
 | 3 — 프로토콜 v2 코드 | Task 9~13e | ✅ **완료** |
 | 4 — TLS | Task 14~16 | ✅ **완료** |
-| 5 — 문서·검증 | Task 18~19 | ✅ **완료** (25/25 자동화 테스트 + 스텁 13/13 실행 검증) |
+| 5 — 문서·검증 | Task 18~19 | ✅ **완료** (26/26 자동화 테스트 + 스텁 13/13 실행 검증) |
 | 버그 수정 | Task 20~22 | ✅ **완료** (재연결 identify 누락 / 대화창 입력 / 검증 자동화) |
+| 실서버 준비 | Task 23 | ✅ **완료** (프레임 트레이스 / `-Endpoint` 모드 / TLS 절차) |
 
 ## ✅ 재개 지점 — 깨끗한 상태
 
-**플러그인 C++ 코드 및 사양 문서 완성.** 25종 자동화 테스트 전원 PASS (`EXIT CODE: 0`).
+**플러그인 C++ 코드 및 사양 문서 완성.** 26종 자동화 테스트 전원 PASS (`EXIT CODE: 0`).
 2026-07-31에 스텁 서버(`hermes_stub_server.py`)에 게임을 실제로 붙여 **13개 시나리오
 전부를 사람 개입 없이 실행 검증했다.** `move_to` 의 실제 이동과 도착 통지까지 포함한다.
 실행 명령과 관측 증거는 `docs/testing/manual-verification-setup.md` §4.0.
@@ -36,6 +37,26 @@
   - 헤드리스 검증 하네스: `docs/testing/run-headless-verification.ps1`
   - **검증용 샘플 에셋이 저장소에 존재한다.** 클론 직후 에디터 PIE 가 실행 가능하다.
     `L_HermesTest`, `BP_TestMode`, `BP_HermesTestPlayer`, `IA_Interact`, `IMC_Default`
+
+## 🚀 실서버 연동 준비 완료 (Task 23) — 포트 번호만 받으면 시작
+
+`docs/testing/manual-verification-setup.md` **§8 이 실서버 검증 절차 정본**이다.
+
+```powershell
+.\docs\testing\run-headless-verification.ps1 -Endpoint <host>:<port> -Seconds 60 -ResetSave `
+    -Exec "Hermes.Interact @5, Hermes.Chat @8 안녕하세요"
+```
+
+- **프레임 트레이스** — 송수신 프레임을 `Verbose` 로 남긴다(`>> ` / `<< `).
+  실서버에는 프레임을 찍어 주는 스텁 콘솔이 없으므로 이것이 유일한 눈이다.
+  `session_token` 은 `***` 로 가린다(`HermesTrace::FormatFrame`).
+- **`-Endpoint` 모드** — 스텁을 띄우지 않고 지정 주소로 붙는다. 연결 수·identify 수·
+  에러 수를 클라이언트 로그에서 세므로 스텁 없이도 요약이 나온다.
+- **TLS 절차** — §8.3~8.5. 핵심: `bUseTLS` 는 **커맨드라인 오버라이드가 없어**
+  `Config/DefaultGame.ini` 를 고쳐야 하고, 자체 서명 서버면 SPKI 핀 해시가 필요하다.
+
+**권장 순서: 평문으로 프로토콜을 먼저 통과시키고, 그 다음 TLS 만 켠다.**
+한 번에 하면 실패했을 때 프로토콜 문제인지 TLS 문제인지 구분할 수 없다.
 
 ## 🔧 이번에 고친 것
 
@@ -133,7 +154,7 @@ bUseTLS=False
 `FHermesSocketWorker::Run()` 의 백오프는 **접속 실패**에만 적용된다. 접속은 성공하는데
 서버가 매번 에러로 끊으면 재연결이 왕복 지연 속도로 돈다(측정: 45초에 216 회).
 스텁의 인위적 상황이라 실서버에서 그대로 나타나지는 않지만, 서버가 그 상태에 빠지면
-클라이언트가 서버를 두드린다. 배경은 `manual-verification-setup.md` §7.2.
+클라이언트가 서버를 두드린다. 배경은 `manual-verification-setup.md` §7.4.
 
 ## 문서 위치
 
@@ -160,7 +181,7 @@ c2a4d28  docs: 스텁 서버 와이어 검증 완료 및 브랜치 정리
 
 ## 테스트 기준선
 
-**2026-07-31 확인: 25종 전부 통과 (exit code 0).**
+**2026-07-31 확인: 26종 전부 통과 (exit code 0).**
 
 ```
 Hermes.ActionParams.Coordinate
@@ -187,6 +208,7 @@ Hermes.Settings.CommandLineOverride
 Hermes.TlsPolicy.ServerName
 Hermes.TlsPolicy.UseTls
 Hermes.TlsPolicy.VerifyMode
+Hermes.Trace.FormatFrame
 Hermes.Util.PushBounded
 ```
 
