@@ -49,6 +49,9 @@
 - [x] **Task 26** `-HermesUseTLS=0/1` 오버라이드 추가 — 스텁(평문)과 실서버(TLS)를
       ini 수정 없이 오갈 수 있다 (`Hermes.Settings.CommandLineOverride` 확장). §8.3
 - [x] **실서버 TLS 검증** TLS 1.3 + 자체 서명 + SPKI 핀으로 접속·`identify`·대화 확인
+- [x] **Task 27** 에러로 인한 재연결의 백오프 부재 수정 — 되돌리는 기준을
+      "붙었다"에서 "쓸 만큼 살아 있었다"로 (`Hermes.Backoff.Ladder` PASS).
+      45초에 216회 → 6회. §7.4
 
 ## ✅ 스텁 14개 시나리오 전부 실행 검증 (2026-07-31)
 
@@ -70,16 +73,15 @@
       `UFUNCTION(BlueprintCallable)` 부착 (의도적 보류)
 - [ ] **위젯이 눈에 어떻게 보이는지** — 동작은 전부 자동 검증되지만 레이아웃·글자
       크기·창 위치는 로그로 드러나지 않는다. PIE 에서 한 번 보면 되는 확인이다
-- [ ] **에러로 인한 재연결의 백오프 부재** — 판단 필요. 배경은
-      `manual-verification-setup.md` §7.4
 
-## 자동화 테스트 결과 (총 27종 전원 PASS)
+## 자동화 테스트 결과 (총 28종 전원 PASS)
 
 - `Hermes.ActionParams.Coordinate` : PASS
 - `Hermes.ActionParams.ItemId` : PASS
 - `Hermes.ActionParams.Quantity` : PASS
 - `Hermes.Actions.Dispatcher.Rebind` : PASS
 - `Hermes.Actions.Dispatcher.Route` : PASS
+- `Hermes.Backoff.Ladder` : PASS
 - `Hermes.Chat.Correlation` : PASS
 - `Hermes.Connection.Edge` : PASS
 - `Hermes.Connection.ErrorPolicy` : PASS
@@ -102,4 +104,4 @@
 - `Hermes.TlsPolicy.VerifyMode` : PASS
 - `Hermes.Trace.FormatFrame` : PASS
 - `Hermes.Util.PushBounded` : PASS
-- `EXIT CODE: 0` (27/27 PASS, 2026-07-31 재확인)
+- `EXIT CODE: 0` (28/28 PASS, 2026-07-31 재확인)
