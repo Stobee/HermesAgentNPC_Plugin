@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     스텁 서버를 띄우고 게임을 헤드리스로 붙여 프레임 교환을 기록한다.
 
@@ -22,6 +22,9 @@
 param(
     # hermes_stub_server.py --list 로 목록을 볼 수 있다.
     [string]$Scenario = "happy",
+    # 실제 서버에 붙는다. 스텁을 띄우지 않는다. 예: -Endpoint 192.168.0.111:8770
+    # 이때 -Scenario 는 무시된다.
+    [string]$Endpoint,
     # 게임을 몇 초 띄워 둘지. 사망 판정(PeerTimeoutSeconds, 기본 60초)을 보려면 넉넉히.
     [int]$Seconds = 60,
     # 신규 신원 발급 경로를 보려면 SaveGame 을 지운다.
@@ -46,25 +49,39 @@ if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Force $OutDir | Ou
 
 if (-not (Test-Path $ue)) { throw "엔진을 찾을 수 없다: $ue  (-Engine 으로 경로를 지정한다)" }
 
-$stubLog = Join-Path $OutDir "stub-$Scenario.log"
-$ueLog   = Join-Path $OutDir "ue-$Scenario.log"
+$label   = if ($Endpoint) { "live" } else { $Scenario }
+$stubLog = Join-Path $OutDir "stub-$label.log"
+$ueLog   = Join-Path $OutDir "ue-$label.log"
 
 if ($ResetSave) {
     Remove-Item (Join-Path $repo "Saved\SaveGames\HermesPlayer.sav") -ErrorAction SilentlyContinue
     Write-Host "[harness] savegame reset"
 }
 
-$stub = Start-Process -FilePath "py" -ArgumentList @($stubPy, "--scenario", $Scenario) `
-        -RedirectStandardOutput $stubLog -RedirectStandardError "$stubLog.err" `
-        -NoNewWindow -PassThru
-Start-Sleep -Milliseconds 800
-Write-Host "[harness] stub pid=$($stub.Id) scenario=$Scenario"
+$targetHost = "127.0.0.1"
+$targetPort = 8770
+$stub = $null
+
+if ($Endpoint) {
+    $parts = $Endpoint.Split(":")
+    if ($parts.Count -ne 2) { throw "-Endpoint 형식은 host:port 다. 받은 값: $Endpoint" }
+    $targetHost = $parts[0]
+    $targetPort = [int]$parts[1]
+    Write-Host "[harness] 실서버 모드 -- $($targetHost):$targetPort (스텁을 띄우지 않는다)"
+    Write-Host "[harness] TLS 는 커맨드라인으로 못 바꾼다. Config/DefaultGame.ini 의 bUseTLS 를 확인할 것"
+} else {
+    $stub = Start-Process -FilePath "py" -ArgumentList @($stubPy, "--scenario", $Scenario) `
+            -RedirectStandardOutput $stubLog -RedirectStandardError "$stubLog.err" `
+            -NoNewWindow -PassThru
+    Start-Sleep -Milliseconds 800
+    Write-Host "[harness] stub pid=$($stub.Id) scenario=$Scenario"
+}
 
 # Host/Port 는 ini 를 건드리지 않고 커맨드라인으로 덮는다(Task 1).
 $ueArgs = @(
     "`"$proj`"", "/Game/Hermes/Maps/L_HermesTest",
     "-game", "-unattended", "-nullrhi", "-nosound", "-nosplash",
-    "-HermesHost=127.0.0.1", "-HermesPort=8770",
+    "-HermesHost=$targetHost", "-HermesPort=$targetPort",
     "-LogCmds=`"LogHermes Verbose`"", "-abslog=`"$ueLog`""
 )
 if ($Exec) { $ueArgs += "-ExecCmds=`"$Exec`"" }
@@ -81,24 +98,36 @@ if (-not $game.HasExited) {
     Write-Host "[harness] game exited on its own, code=$($game.ExitCode)"
 }
 Start-Sleep -Seconds 2
-if (-not $stub.HasExited) { Stop-Process -Id $stub.Id -Force -ErrorAction SilentlyContinue }
+if ($stub -and -not $stub.HasExited) { Stop-Process -Id $stub.Id -Force -ErrorAction SilentlyContinue }
 
-$stubLines = @(Get-Content $stubLog -ErrorAction SilentlyContinue)
+$ueLines = @()
+if (Test-Path $ueLog) { $ueLines = @(Get-Content $ueLog -ErrorAction SilentlyContinue) }
 
 Write-Host ""
 Write-Host "=============== 요약 ==============="
-$connections = @($stubLines | Select-String -Pattern "\[\+\] connected").Count
-$identifies  = @($stubLines | Select-String -Pattern '"type": "identify"').Count
+
+# 스텁이 없어도 성립하도록 클라이언트 로그를 기준으로 센다. 연결 성립은 워커가,
+# identify 는 송신 트레이스가 남기므로 두 값은 서로 독립적인 신호다.
+$connections = @($ueLines | Select-String -Pattern "transport connected to").Count
+$identifies  = @($ueLines | Select-String -Pattern '>> .*"type"\s*:\s*"identify"').Count
+$errors      = @($ueLines | Select-String -Pattern 'LogHermes: Error:').Count
 Write-Host ("연결 수      : {0}" -f $connections)
 Write-Host ("identify 수  : {0}" -f $identifies)
-if ($connections -gt 0 -and $identifies -lt $connections - 1) {
+Write-Host ("에러 로그    : {0}" -f $errors)
+
+if ($connections -eq 0) {
+    Write-Warning "한 번도 붙지 못했다. 호스트/포트, 방화벽, 그리고 서버가 TLS 를 요구하는지 확인할 것."
+} elseif ($identifies -lt $connections - 1) {
     # 마지막 연결은 게임을 강제 종료하며 잘릴 수 있으므로 1 개까지는 허용한다.
     Write-Warning "identify 없는 연결이 있다. 새 연결마다 신원을 밝혀야 한다 -- HermesConnectionEdge 회귀를 의심할 것."
 }
 
-Write-Host ""
-Write-Host "=============== 스텁 프레임 로그 ==============="
-if ($stubLines.Count -gt 0) { $stubLines } else { Write-Host "(비어 있다)" }
+if (-not $Endpoint) {
+    $stubLines = @(Get-Content $stubLog -ErrorAction SilentlyContinue)
+    Write-Host ""
+    Write-Host "=============== 스텁 프레임 로그 ==============="
+    if ($stubLines.Count -gt 0) { $stubLines } else { Write-Host "(비어 있다)" }
+}
 
 Write-Host ""
 Write-Host "=============== UE LogHermes ==============="
