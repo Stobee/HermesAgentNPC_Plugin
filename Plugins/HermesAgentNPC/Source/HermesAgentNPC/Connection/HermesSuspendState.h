@@ -39,6 +39,14 @@ struct FHermesSuspendState
 	 */
 	bool TryResume(double NowSeconds, float Initial, float Max);
 
+	/**
+	 * 모든 상태를 초기값으로 되돌린다. 소유자(연결 서브시스템 등)가 사라질 때 쓴다.
+	 * 소유자가 사라진 뒤에도 남은 참조가 질의를 보내면, 초기화하지 않은 경우
+	 * "정지 중"이 영원히 고정된 답으로 남는다 — Worker 가 이미 없어 재개할
+	 * 방법도 없는데 정지만 계속 보고하는 것은 null-safety 축에서 퇴행이다.
+	 */
+	void Reset();
+
 private:
 	/** 연속 정지 횟수. 첫 정지가 1. */
 	int32 ConsecutiveSuspends = 0;

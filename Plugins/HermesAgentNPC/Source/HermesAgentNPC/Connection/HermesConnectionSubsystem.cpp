@@ -94,6 +94,14 @@ void UHermesConnectionSubsystem::Deinitialize()
 		Worker->RequestStop();
 		Worker.Reset(); // 소멸자에서 스레드 Stop/Kill 처리
 	}
+
+	// Worker 가 사라지면 재연결 루프 자체가 없다 — 재개할 대상도, 정지시킬
+	// 대상도 없다. 여기서 지우지 않으면 (예: 블루프린트 위젯이 소멸 후에도
+	// 낡은 서브시스템 참조를 들고 질의하는 경우) IsReconnectSuspended() 가
+	// "정지 중"을 영원히 답하게 된다. Worker 유무와 무관하게 항상 일관된
+	// "정지 아님" 을 보장하려고 여기서 지운다.
+	SuspendState.Reset();
+
 	Super::Deinitialize();
 }
 

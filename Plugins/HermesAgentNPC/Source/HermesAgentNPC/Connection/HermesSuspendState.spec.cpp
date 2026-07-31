@@ -96,6 +96,30 @@ bool FHermesSuspendStateTest::RunTest(const FString& Parameters)
 			S.CooldownRemaining(100.0, Initial, Max), 0.f);
 	}
 
+	// Reset() 은 정지 상태를 완전히 지운다 — 소유자(연결 서브시스템)가 사라진
+	// 뒤에도 남은 참조가 질의하면 "정지 중"이 영원히 고정되는 것을 막는다.
+	{
+		FHermesSuspendState S;
+		S.NoteConnectionOpened();
+		S.NoteSuspended(100.0);
+		S.NoteSuspended(110.0); // 사다리를 두 칸 올려 대기가 남아 있게 만든다
+		TestTrue(TEXT("Reset 전에는 정지 상태"), S.IsSuspended());
+
+		S.Reset();
+
+		TestFalse(TEXT("Reset 후에는 정지 아님"), S.IsSuspended());
+		TestEqual(TEXT("Reset 후에는 대기 없음"),
+			S.CooldownRemaining(110.0, Initial, Max), 0.f);
+		TestFalse(TEXT("Reset 후에는 재개할 것도 없음"),
+			S.TryResume(110.0, Initial, Max));
+
+		// 사다리 자체도 초기화된다 — Reset 뒤 첫 정지는 다시 "첫 정지"로 취급된다.
+		S.NoteConnectionOpened();
+		S.NoteSuspended(200.0);
+		TestEqual(TEXT("Reset 뒤 첫 정지는 대기 없음"),
+			S.CooldownRemaining(200.0, Initial, Max), 0.f);
+	}
+
 	// 되받아치기를 반복하면 사다리가 계속 오른다 — 이것이 싸움을 수렴시킨다.
 	{
 		FHermesSuspendState S;

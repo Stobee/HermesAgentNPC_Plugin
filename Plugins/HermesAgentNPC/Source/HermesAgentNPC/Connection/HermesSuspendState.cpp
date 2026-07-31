@@ -54,3 +54,11 @@ bool FHermesSuspendState::TryResume(double NowSeconds, float Initial, float Max)
 	bSuspended = false;
 	return true;
 }
+
+void FHermesSuspendState::Reset()
+{
+	ConsecutiveSuspends = 0;
+	SuspendedAt = 0.0;
+	bSuspended = false;
+	bSuspendedDuringThisConnection = false;
+}
